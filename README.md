@@ -248,6 +248,20 @@ Pilot hardening audit cues (C2-05):
 - Embedded quick path surfaces this summary in a dedicated pilot audit status panel.
 - Review table now includes a `Taxonomy Cue` column to make classification risk visible at row level.
 
+Pilot single/multi validation harness (C2-06):
+
+- Added scripted pilot validation command to exercise both single-listing and multi-listing intake paths.
+- Command:
+  - `npm run pilot:validate`
+- Validation output includes deterministic checks and metrics per scenario:
+  - import exit status
+  - report row coverage
+  - classification notice coverage
+  - group-count coverage
+  - confidence and taxonomy cue metrics
+- Summary artifact is written to:
+  - `data/ui-session/pilot-validation.latest.json`
+
 Per-shop data partitioning (C1-01):
 
 - Embedded workflow runtime state is now isolated by shop context.

@@ -298,6 +298,16 @@
 - Artifacts:
   1. C2-05_VERIFICATION.md
 
+### C2-06 - Pilot single/multi validation harness
+- Status: DONE
+- Estimate: 5h
+- Scope:
+  - Add deterministic validation harness for single-listing and multi-listing pilot paths.
+  - Produce pass/fail checks for import status, report coverage, and classification notice coverage.
+  - Emit run summary artifact and retry guidance for operator handoff.
+- Artifacts:
+  1. C2-06_VERIFICATION.md
+
 ## Weekly Cadence
 
 - Session 1 (2h): Build task
