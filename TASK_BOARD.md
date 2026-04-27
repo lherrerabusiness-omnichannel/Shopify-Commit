@@ -308,6 +308,18 @@
 - Artifacts:
   1. C2-06_VERIFICATION.md
 
+### C2-07 - External pilot handoff and acceptance gate
+- Status: DONE
+- Estimate: 6h
+- Scope:
+  - Add acceptance command that evaluates pilot validation output into release decision gates.
+  - Publish operator handoff runbook for external pilot execution.
+  - Publish escalation matrix with severity, owner, and SLA guidance.
+- Artifacts:
+  1. C2-07_PILOT_RUNBOOK.md
+  2. C2-07_ESCALATION_MATRIX.md
+  3. C2-07_VERIFICATION.md
+
 ## Weekly Cadence
 
 - Session 1 (2h): Build task

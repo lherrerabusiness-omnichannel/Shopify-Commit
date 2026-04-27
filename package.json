@@ -18,6 +18,7 @@
     "import:csv:images": "node scripts/import-products-csv.js --input data/products-import.csv --output data/products.generated.json --report reports/review-report.csv --image-root assets/products",
     "import:csv:images:schema": "node scripts/import-products-csv.js --input data/products-import.csv --output data/products.generated.json --report reports/review-report.csv --image-root assets/products --schema data/shopify-metafields.product.json",
     "pilot:validate": "node scripts/run-pilot-validation.js --input data/products-import.csv --image-root assets/products",
+    "pilot:acceptance": "node scripts/run-pilot-acceptance.js --input data/products-import.csv --image-root assets/products",
     "push:dry": "node scripts/push-products.js --dry-run --file data/products.json",
     "push:live": "node scripts/push-products.js --live --file data/products.json",
     "push:generated:dry": "node scripts/push-products.js --dry-run --file data/products.generated.json",

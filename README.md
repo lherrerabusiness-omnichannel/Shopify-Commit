@@ -262,6 +262,22 @@ Pilot single/multi validation harness (C2-06):
 - Summary artifact is written to:
   - `data/ui-session/pilot-validation.latest.json`
 
+External pilot handoff and acceptance gate (C2-07):
+
+- Added release-gate command that runs pilot validation and emits an `ACCEPT|HOLD` decision:
+  - `npm run pilot:acceptance`
+- Acceptance output includes gate-level checks with severity:
+  - `overall-pass`
+  - `single-scenario-pass`
+  - `multi-scenario-pass`
+  - low-confidence threshold gates
+  - taxonomy-needs-review threshold gates
+- Acceptance artifact is written to:
+  - `data/ui-session/pilot-acceptance.latest.json`
+- External pilot handoff docs:
+  - `C2-07_PILOT_RUNBOOK.md`
+  - `C2-07_ESCALATION_MATRIX.md`
+
 Per-shop data partitioning (C1-01):
 
 - Embedded workflow runtime state is now isolated by shop context.
