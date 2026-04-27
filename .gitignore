@@ -1,3 +1,15 @@
 node_modules/
 .env
 *.log
+
+# Local auth and runtime state
+data/auth/shopify-tokens.json
+data/ui-session/
+data/recovery/
+data/shops/
+
+# Generated outputs and reports
+data/intake-workbook/
+data/*.generated.json
+data/tmp*.json
+reports/
