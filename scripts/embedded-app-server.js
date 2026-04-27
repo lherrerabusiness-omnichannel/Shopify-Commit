@@ -20,8 +20,10 @@ const CLIENT_SECRET = String(process.env.SHOPIFY_CLIENT_SECRET || "").trim();
 const DEFAULT_SCOPES = String(process.env.SHOPIFY_SCOPES || "read_products,write_products").trim();
 const REDIRECT_URI = String(process.env.EMBEDDED_SHOPIFY_REDIRECT_URI || `http://${HOST}:${PORT}/auth/callback`).trim();
 const EMBEDDED_ALLOW_LIVE_PUSH = String(process.env.EMBEDDED_ALLOW_LIVE_PUSH || "false").toLowerCase() === "true";
+const PILOT_ROLLOUT_ENFORCE = String(process.env.PILOT_ROLLOUT_ENFORCE || "false").toLowerCase() === "true";
 const LEGACY_BOOTSTRAP_STATE_PATH = path.resolve(process.cwd(), "data/ui-session/embedded-bootstrap-state.json");
 const LEGACY_JOB_HISTORY_PATH = path.resolve(process.cwd(), "data/ui-session/embedded-jobs-history.jsonl");
+const PILOT_ALLOWLIST_PATH = path.resolve(process.cwd(), "data/pilot/pilot-allowlist.json");
 
 function normalizeShop(raw) {
   return String(raw || "").trim().toLowerCase().replace(/^https?:\/\//, "");
@@ -48,6 +50,7 @@ function getShopPaths(shopKey) {
     jobHistoryPath: path.resolve(process.cwd(), `${sessionDirRel}/embedded-jobs-history.jsonl`),
     onboardingStatePath: path.resolve(process.cwd(), `${sessionDirRel}/embedded-onboarding-state.json`),
     diagnosticsStatePath: path.resolve(process.cwd(), `${sessionDirRel}/embedded-diagnostics-state.json`),
+    pilotRolloutStatePath: path.resolve(process.cwd(), `${sessionDirRel}/embedded-pilot-rollout-state.json`),
   };
 }
 
@@ -152,6 +155,50 @@ function createEmptyDiagnosticsState() {
   };
 }
 
+function createDefaultPilotChecklist() {
+  return [
+    {
+      id: "oauth-connected",
+      label: "OAuth token persisted for this shop",
+      checked: false,
+      updatedAt: "",
+    },
+    {
+      id: "bootstrap-complete",
+      label: "Bootstrap pipeline completed successfully",
+      checked: false,
+      updatedAt: "",
+    },
+    {
+      id: "acceptance-pass",
+      label: "Pilot acceptance gate PASS recorded",
+      checked: false,
+      updatedAt: "",
+    },
+    {
+      id: "operator-runbook-reviewed",
+      label: "Operator runbook and escalation matrix reviewed",
+      checked: false,
+      updatedAt: "",
+    },
+  ];
+}
+
+function createEmptyPilotRolloutState() {
+  return {
+    status: "draft",
+    updatedAt: "",
+    checklist: createDefaultPilotChecklist(),
+    signoff: {
+      approved: false,
+      approvedBy: "",
+      approvedAt: "",
+      ticketRef: "",
+      notes: "",
+    },
+  };
+}
+
 function readOnboardingState(filePath) {
   if (!fs.existsSync(filePath)) {
     return createEmptyOnboardingState();
@@ -186,6 +233,130 @@ function writeDiagnosticsState(filePath, next) {
   ensureDirs();
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+}
+
+function readPilotRolloutState(filePath) {
+  if (!fs.existsSync(filePath)) {
+    return createEmptyPilotRolloutState();
+  }
+
+  try {
+    const value = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    const baseline = createEmptyPilotRolloutState();
+    const incomingChecklist = Array.isArray(value.checklist) ? value.checklist : [];
+    const mergedChecklist = baseline.checklist.map((item) => {
+      const existing = incomingChecklist.find((entry) => String(entry.id || "") === item.id) || {};
+      return {
+        id: item.id,
+        label: String(existing.label || item.label),
+        checked: Boolean(existing.checked),
+        updatedAt: String(existing.updatedAt || ""),
+      };
+    });
+
+    return {
+      status: String(value.status || baseline.status),
+      updatedAt: String(value.updatedAt || ""),
+      checklist: mergedChecklist,
+      signoff: {
+        approved: Boolean(value.signoff && value.signoff.approved),
+        approvedBy: String(value.signoff && value.signoff.approvedBy || ""),
+        approvedAt: String(value.signoff && value.signoff.approvedAt || ""),
+        ticketRef: String(value.signoff && value.signoff.ticketRef || ""),
+        notes: String(value.signoff && value.signoff.notes || ""),
+      },
+    };
+  } catch {
+    return createEmptyPilotRolloutState();
+  }
+}
+
+function writePilotRolloutState(filePath, next) {
+  ensureDirs();
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+}
+
+function readPilotAllowlist() {
+  if (!fs.existsSync(PILOT_ALLOWLIST_PATH)) {
+    return {
+      updatedAt: "",
+      shops: [],
+    };
+  }
+
+  try {
+    const value = JSON.parse(fs.readFileSync(PILOT_ALLOWLIST_PATH, "utf8"));
+    const shops = Array.isArray(value.shops) ? value.shops : [];
+    return {
+      updatedAt: String(value.updatedAt || ""),
+      shops: shops
+        .map((entry) => ({
+          shop: normalizeShop(entry.shop),
+          addedAt: String(entry.addedAt || ""),
+          addedBy: String(entry.addedBy || ""),
+          note: String(entry.note || ""),
+        }))
+        .filter((entry) => Boolean(entry.shop)),
+    };
+  } catch {
+    return {
+      updatedAt: "",
+      shops: [],
+    };
+  }
+}
+
+function writePilotAllowlist(next) {
+  ensureDirs();
+  fs.mkdirSync(path.dirname(PILOT_ALLOWLIST_PATH), { recursive: true });
+  fs.writeFileSync(PILOT_ALLOWLIST_PATH, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+}
+
+function isShopAllowlisted(shop) {
+  const normalized = normalizeShop(shop);
+  if (!normalized) return false;
+  const allowlist = readPilotAllowlist();
+  return allowlist.shops.some((entry) => normalizeShop(entry.shop) === normalized);
+}
+
+function isPilotRolloutApproved(shopContext) {
+  const state = shopContext.pilotRolloutState || createEmptyPilotRolloutState();
+  const allowlisted = isShopAllowlisted(shopContext.shop);
+  const checklist = Array.isArray(state.checklist) ? state.checklist : [];
+  const checklistComplete = checklist.length > 0 && checklist.every((item) => Boolean(item.checked));
+  const signoffApproved = Boolean(state.signoff && state.signoff.approved);
+
+  return {
+    allowlisted,
+    checklistComplete,
+    signoffApproved,
+    approved: allowlisted && checklistComplete && signoffApproved,
+  };
+}
+
+function summarizePilotRollout(shopContext) {
+  const allowlist = readPilotAllowlist();
+  const state = shopContext.pilotRolloutState || createEmptyPilotRolloutState();
+  const gates = isPilotRolloutApproved(shopContext);
+  const checkedCount = (state.checklist || []).filter((item) => item.checked).length;
+
+  return {
+    shop: shopContext.shop,
+    enforce: PILOT_ROLLOUT_ENFORCE,
+    allowlistUpdatedAt: allowlist.updatedAt,
+    allowlisted: gates.allowlisted,
+    status: state.status,
+    updatedAt: state.updatedAt,
+    checklist: state.checklist,
+    checklistProgress: {
+      checked: checkedCount,
+      total: Array.isArray(state.checklist) ? state.checklist.length : 0,
+      complete: gates.checklistComplete,
+    },
+    signoff: state.signoff,
+    approved: gates.approved,
+  };
 }
 
 function readBootstrapState(filePath) {
@@ -223,6 +394,7 @@ function createShopContext(shop) {
     workflowState: createEmptyWorkflowState(),
     onboardingState: readOnboardingState(paths.onboardingStatePath),
     diagnosticsState: readDiagnosticsState(paths.diagnosticsStatePath),
+    pilotRolloutState: readPilotRolloutState(paths.pilotRolloutStatePath),
     jobsById: new Map(),
     recentJobIds: [],
   };
@@ -1500,7 +1672,16 @@ function createServer() {
         ok: true,
         shop: shopContext.shop,
         workflow: shopContext.workflowState,
+        rollout: summarizePilotRollout(shopContext),
         liveEnabled: EMBEDDED_ALLOW_LIVE_PUSH,
+      });
+    }
+
+    if (requestUrl.pathname === "/api/pilot/rollout/latest") {
+      const shopContext = getContext();
+      return sendJson(res, 200, {
+        ok: true,
+        rollout: summarizePilotRollout(shopContext),
       });
     }
 
@@ -1640,6 +1821,125 @@ function createServer() {
       }
     }
 
+    if (req.method === "POST" && requestUrl.pathname === "/api/pilot/rollout/allowlist") {
+      try {
+        const body = await readBody(req);
+        const shopContext = getContext(body);
+        const actor = String(body.actor || "").trim() || "operator";
+        const note = String(body.note || "").trim();
+        const action = String(body.action || "add").trim().toLowerCase();
+        const targetShop = normalizeShop(body.shop || shopContext.shop);
+
+        if (!isValidShop(targetShop)) {
+          return sendJson(res, 400, { ok: false, error: "Valid shop is required for allowlist updates." });
+        }
+
+        const allowlist = readPilotAllowlist();
+        const current = allowlist.shops.filter((entry) => normalizeShop(entry.shop) !== targetShop);
+        if (action === "add") {
+          current.push({
+            shop: targetShop,
+            addedAt: new Date().toISOString(),
+            addedBy: actor,
+            note,
+          });
+        } else if (action !== "remove") {
+          return sendJson(res, 400, { ok: false, error: "action must be add or remove." });
+        }
+
+        const updated = {
+          updatedAt: new Date().toISOString(),
+          shops: current.sort((a, b) => String(a.shop).localeCompare(String(b.shop))),
+        };
+        writePilotAllowlist(updated);
+
+        return sendJson(res, 200, {
+          ok: true,
+          action,
+          shop: targetShop,
+          allowlist: updated,
+          rollout: summarizePilotRollout(getShopContext(targetShop)),
+        });
+      } catch (error) {
+        return sendJson(res, 400, { ok: false, error: String(error.message || error) });
+      }
+    }
+
+    if (req.method === "POST" && requestUrl.pathname === "/api/pilot/rollout/checklist") {
+      try {
+        const body = await readBody(req);
+        const shopContext = getContext(body);
+        const updates = body.checklist && typeof body.checklist === "object" ? body.checklist : {};
+        const now = new Date().toISOString();
+
+        const nextChecklist = (shopContext.pilotRolloutState.checklist || createDefaultPilotChecklist()).map((item) => {
+          if (!Object.prototype.hasOwnProperty.call(updates, item.id)) {
+            return item;
+          }
+          return {
+            ...item,
+            checked: Boolean(updates[item.id]),
+            updatedAt: now,
+          };
+        });
+
+        const nextState = {
+          ...shopContext.pilotRolloutState,
+          status: "draft",
+          updatedAt: now,
+          checklist: nextChecklist,
+        };
+
+        shopContext.pilotRolloutState = nextState;
+        writePilotRolloutState(shopContext.paths.pilotRolloutStatePath, nextState);
+
+        return sendJson(res, 200, {
+          ok: true,
+          rollout: summarizePilotRollout(shopContext),
+        });
+      } catch (error) {
+        return sendJson(res, 400, { ok: false, error: String(error.message || error) });
+      }
+    }
+
+    if (req.method === "POST" && requestUrl.pathname === "/api/pilot/rollout/signoff") {
+      try {
+        const body = await readBody(req);
+        const shopContext = getContext(body);
+        const approved = Boolean(body.approved);
+        const approvedBy = String(body.approvedBy || "").trim();
+        const ticketRef = String(body.ticketRef || "").trim();
+        const notes = String(body.notes || "").trim();
+
+        if (approved && !approvedBy) {
+          return sendJson(res, 400, { ok: false, error: "approvedBy is required when approved=true." });
+        }
+
+        const nextState = {
+          ...shopContext.pilotRolloutState,
+          status: approved ? "approved" : "draft",
+          updatedAt: new Date().toISOString(),
+          signoff: {
+            approved,
+            approvedBy,
+            approvedAt: approved ? new Date().toISOString() : "",
+            ticketRef,
+            notes,
+          },
+        };
+
+        shopContext.pilotRolloutState = nextState;
+        writePilotRolloutState(shopContext.paths.pilotRolloutStatePath, nextState);
+
+        return sendJson(res, 200, {
+          ok: true,
+          rollout: summarizePilotRollout(shopContext),
+        });
+      } catch (error) {
+        return sendJson(res, 400, { ok: false, error: String(error.message || error) });
+      }
+    }
+
     if (req.method === "POST" && requestUrl.pathname === "/api/jobs/start") {
       try {
         const body = await readBody(req);
@@ -1770,6 +2070,14 @@ function createServer() {
       try {
         const body = await readBody(req);
         const shopContext = getContext(body);
+        const rollout = summarizePilotRollout(shopContext);
+        if (PILOT_ROLLOUT_ENFORCE && !rollout.approved) {
+          return sendJson(res, 403, {
+            ok: false,
+            error: "Pilot rollout gate blocked. Shop must be allowlisted with completed checklist and signoff.",
+            rollout,
+          });
+        }
         const result = await performWorkflowImport(shopContext, body);
         return sendJson(res, result.ok ? 200 : 400, result);
       } catch (error) {
@@ -1781,6 +2089,14 @@ function createServer() {
       try {
         const body = await readBody(req);
         const shopContext = getContext(body);
+        const rollout = summarizePilotRollout(shopContext);
+        if (PILOT_ROLLOUT_ENFORCE && !rollout.approved) {
+          return sendJson(res, 403, {
+            ok: false,
+            error: "Pilot rollout gate blocked. Shop must be allowlisted with completed checklist and signoff.",
+            rollout,
+          });
+        }
         const result = await performWorkflowPush(shopContext, body);
         const status = result.ok ? 200
           : (String(result.error || "").includes("Live push disabled") ? 409 : 400);

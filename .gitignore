@@ -7,6 +7,7 @@ data/auth/shopify-tokens.json
 data/ui-session/
 data/recovery/
 data/shops/
+data/pilot/
 
 # Generated outputs and reports
 data/intake-workbook/

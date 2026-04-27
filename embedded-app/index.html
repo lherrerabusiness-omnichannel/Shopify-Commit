@@ -483,7 +483,7 @@
   <div class="topbar">
     <div>
       Shopify Commit Embedded App
-      <span class="pill">Phase C / C2-03</span>
+      <span class="pill">Phase C / C2-08</span>
       <span class="pill" id="bridgeState">App Bridge: pending</span>
     </div>
     <div id="shopContext">shop: n/a</div>
@@ -616,6 +616,65 @@
         </details>
 
         <details class="expando">
+          <summary>Pilot rollout controls (optional)</summary>
+          <div class="expando-body">
+            <div class="workflow" style="margin-top:0;">
+              <h3>Store allowlist, checklist, and signoff</h3>
+              <div class="status-list" id="pilotRolloutStatus">Rollout gate not loaded yet.</div>
+              <div class="inline">
+                <input id="pilotActorInput" type="text" placeholder="Operator name" />
+                <input id="pilotTicketInput" type="text" placeholder="Ticket or approval ref" />
+              </div>
+              <div class="inline">
+                <input id="pilotNoteInput" type="text" placeholder="Allowlist note (optional)" />
+              </div>
+              <div class="btns">
+                <button class="btn" id="pilotAllowlistAddBtn" type="button">Add Shop To Allowlist</button>
+                <button class="btn" id="pilotAllowlistRemoveBtn" type="button">Remove Shop From Allowlist</button>
+              </div>
+              <div class="onboarding-list">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Checklist Item</th>
+                      <th>Done</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>OAuth token persisted for this shop</td>
+                      <td><input id="rolloutCheckOAuth" type="checkbox" /></td>
+                    </tr>
+                    <tr>
+                      <td>Bootstrap pipeline completed successfully</td>
+                      <td><input id="rolloutCheckBootstrap" type="checkbox" /></td>
+                    </tr>
+                    <tr>
+                      <td>Pilot acceptance gate PASS recorded</td>
+                      <td><input id="rolloutCheckAcceptance" type="checkbox" /></td>
+                    </tr>
+                    <tr>
+                      <td>Operator runbook and escalation matrix reviewed</td>
+                      <td><input id="rolloutCheckRunbook" type="checkbox" /></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="inline">
+                <input id="pilotSignoffByInput" type="text" placeholder="Approved by" />
+                <input id="pilotSignoffNotesInput" type="text" placeholder="Signoff notes (optional)" />
+              </div>
+              <div class="btns">
+                <button class="btn" id="pilotChecklistSaveBtn" type="button">Save Checklist</button>
+                <button class="btn primary" id="pilotSignoffApproveBtn" type="button">Approve Rollout</button>
+                <button class="btn" id="pilotSignoffRevokeBtn" type="button">Revoke Signoff</button>
+                <button class="btn" id="pilotRolloutRefreshBtn" type="button">Refresh Rollout</button>
+              </div>
+            </div>
+          </div>
+        </details>
+
+        <details class="expando">
           <summary>Advanced workflow controls (optional)</summary>
           <div class="expando-body">
             <div class="workflow" style="margin-top:0;">
@@ -735,6 +794,22 @@
     const diagnosticsRefreshBtn = document.getElementById("diagnosticsRefreshBtn");
     const diagnosticsStatus = document.getElementById("diagnosticsStatus");
     const diagnosticsPreview = document.getElementById("diagnosticsPreview");
+    const pilotRolloutStatus = document.getElementById("pilotRolloutStatus");
+    const pilotActorInput = document.getElementById("pilotActorInput");
+    const pilotTicketInput = document.getElementById("pilotTicketInput");
+    const pilotNoteInput = document.getElementById("pilotNoteInput");
+    const pilotAllowlistAddBtn = document.getElementById("pilotAllowlistAddBtn");
+    const pilotAllowlistRemoveBtn = document.getElementById("pilotAllowlistRemoveBtn");
+    const rolloutCheckOAuth = document.getElementById("rolloutCheckOAuth");
+    const rolloutCheckBootstrap = document.getElementById("rolloutCheckBootstrap");
+    const rolloutCheckAcceptance = document.getElementById("rolloutCheckAcceptance");
+    const rolloutCheckRunbook = document.getElementById("rolloutCheckRunbook");
+    const pilotSignoffByInput = document.getElementById("pilotSignoffByInput");
+    const pilotSignoffNotesInput = document.getElementById("pilotSignoffNotesInput");
+    const pilotChecklistSaveBtn = document.getElementById("pilotChecklistSaveBtn");
+    const pilotSignoffApproveBtn = document.getElementById("pilotSignoffApproveBtn");
+    const pilotSignoffRevokeBtn = document.getElementById("pilotSignoffRevokeBtn");
+    const pilotRolloutRefreshBtn = document.getElementById("pilotRolloutRefreshBtn");
     const quickDropzone = document.getElementById("quickDropzone");
     const quickCsvInput = document.getElementById("quickCsvInput");
     const quickFileMeta = document.getElementById("quickFileMeta");
@@ -769,6 +844,7 @@
     let latestAttention = null;
     let latestOnboarding = null;
     let latestDiagnostics = null;
+    let latestRollout = null;
     let selectedCsvFile = null;
     const classificationNoticeText = "Final classification stays under your control before publishing.";
 
@@ -1025,6 +1101,121 @@
       ];
       if (s.error) lines.push(`error: ${s.error}`);
       return lines.join("\n");
+    }
+
+    function checklistValueById(checklist, id) {
+      const list = Array.isArray(checklist) ? checklist : [];
+      const match = list.find((item) => String(item.id || "") === id);
+      return Boolean(match && match.checked);
+    }
+
+    function applyRolloutChecklistToUI(rollout) {
+      const checklist = rollout && Array.isArray(rollout.checklist) ? rollout.checklist : [];
+      rolloutCheckOAuth.checked = checklistValueById(checklist, "oauth-connected");
+      rolloutCheckBootstrap.checked = checklistValueById(checklist, "bootstrap-complete");
+      rolloutCheckAcceptance.checked = checklistValueById(checklist, "acceptance-pass");
+      rolloutCheckRunbook.checked = checklistValueById(checklist, "operator-runbook-reviewed");
+
+      if (rollout && rollout.signoff) {
+        pilotSignoffByInput.value = rollout.signoff.approvedBy || "";
+        pilotSignoffNotesInput.value = rollout.signoff.notes || "";
+      }
+    }
+
+    function summarizeRollout(rollout) {
+      const r = rollout || {};
+      const progress = r.checklistProgress || {};
+      const signoff = r.signoff || {};
+      const lines = [
+        `shop: ${r.shop || "n/a"}`,
+        `enforce: ${Boolean(r.enforce)}`,
+        `allowlisted: ${Boolean(r.allowlisted)}`,
+        `checklist: ${progress.checked || 0}/${progress.total || 0} complete=${Boolean(progress.complete)}`,
+        `signoff: approved=${Boolean(signoff.approved)} by=${signoff.approvedBy || "n/a"}`,
+        `approved: ${Boolean(r.approved)}`,
+        `status: ${r.status || "draft"}`,
+        `updated: ${r.updatedAt || "n/a"}`,
+      ];
+      if (signoff.ticketRef) lines.push(`ticket_ref: ${signoff.ticketRef}`);
+      if (signoff.notes) lines.push(`notes: ${signoff.notes}`);
+      return lines.join("\n");
+    }
+
+    async function loadPilotRolloutLatest() {
+      try {
+        const res = await apiGet("/api/pilot/rollout/latest");
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+          throw new Error(data.error || "Could not load rollout state.");
+        }
+        latestRollout = data.rollout || null;
+        applyRolloutChecklistToUI(latestRollout);
+        pilotRolloutStatus.textContent = summarizeRollout(latestRollout);
+      } catch (error) {
+        pilotRolloutStatus.textContent = `Could not load rollout state: ${String(error && error.message ? error.message : error)}`;
+      }
+    }
+
+    async function updatePilotAllowlist(action) {
+      try {
+        const body = {
+          action,
+          actor: String(pilotActorInput.value || "").trim() || "operator",
+          note: String(pilotNoteInput.value || "").trim(),
+        };
+        const res = await apiPost("/api/pilot/rollout/allowlist", body);
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+          throw new Error(data.error || "Allowlist update failed.");
+        }
+        latestRollout = data.rollout || null;
+        applyRolloutChecklistToUI(latestRollout);
+        pilotRolloutStatus.textContent = summarizeRollout(latestRollout);
+      } catch (error) {
+        pilotRolloutStatus.textContent = `Allowlist update failed: ${String(error && error.message ? error.message : error)}`;
+      }
+    }
+
+    async function savePilotChecklist() {
+      try {
+        const checklist = {
+          "oauth-connected": Boolean(rolloutCheckOAuth.checked),
+          "bootstrap-complete": Boolean(rolloutCheckBootstrap.checked),
+          "acceptance-pass": Boolean(rolloutCheckAcceptance.checked),
+          "operator-runbook-reviewed": Boolean(rolloutCheckRunbook.checked),
+        };
+        const res = await apiPost("/api/pilot/rollout/checklist", { checklist });
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+          throw new Error(data.error || "Checklist save failed.");
+        }
+        latestRollout = data.rollout || null;
+        applyRolloutChecklistToUI(latestRollout);
+        pilotRolloutStatus.textContent = summarizeRollout(latestRollout);
+      } catch (error) {
+        pilotRolloutStatus.textContent = `Checklist save failed: ${String(error && error.message ? error.message : error)}`;
+      }
+    }
+
+    async function savePilotSignoff(approved) {
+      try {
+        const body = {
+          approved,
+          approvedBy: String(pilotSignoffByInput.value || "").trim(),
+          ticketRef: String(pilotTicketInput.value || "").trim(),
+          notes: String(pilotSignoffNotesInput.value || "").trim(),
+        };
+        const res = await apiPost("/api/pilot/rollout/signoff", body);
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+          throw new Error(data.error || "Signoff update failed.");
+        }
+        latestRollout = data.rollout || null;
+        applyRolloutChecklistToUI(latestRollout);
+        pilotRolloutStatus.textContent = summarizeRollout(latestRollout);
+      } catch (error) {
+        pilotRolloutStatus.textContent = `Signoff update failed: ${String(error && error.message ? error.message : error)}`;
+      }
     }
 
     async function loadDiagnosticsLatest() {
@@ -1662,6 +1853,12 @@
     onboardingRefreshBtn.addEventListener("click", loadOnboardingLatest);
     diagnosticsExportBtn.addEventListener("click", exportDiagnosticsBundle);
     diagnosticsRefreshBtn.addEventListener("click", loadDiagnosticsLatest);
+    pilotAllowlistAddBtn.addEventListener("click", () => updatePilotAllowlist("add"));
+    pilotAllowlistRemoveBtn.addEventListener("click", () => updatePilotAllowlist("remove"));
+    pilotChecklistSaveBtn.addEventListener("click", savePilotChecklist);
+    pilotSignoffApproveBtn.addEventListener("click", () => savePilotSignoff(true));
+    pilotSignoffRevokeBtn.addEventListener("click", () => savePilotSignoff(false));
+    pilotRolloutRefreshBtn.addEventListener("click", loadPilotRolloutLatest);
     workflowImportBtn.addEventListener("click", () => runWorkflowImport("advanced"));
     workflowPushDryBtn.addEventListener("click", () => runWorkflowPush("dry"));
     workflowPushLiveBtn.addEventListener("click", () => runWorkflowPush("live"));
@@ -1674,6 +1871,7 @@
     loadBootstrapState();
     loadOnboardingLatest();
     loadDiagnosticsLatest();
+    loadPilotRolloutLatest();
     loadWorkflowLatest();
     loadJobsLatest();
     loadFailedInbox();
@@ -1682,6 +1880,7 @@
     setInterval(() => {
       loadOnboardingLatest();
       loadDiagnosticsLatest();
+      loadPilotRolloutLatest();
       loadJobsLatest();
       loadFailedInbox();
       loadAttentionLatest();

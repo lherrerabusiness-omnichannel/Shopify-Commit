@@ -320,6 +320,16 @@
   2. C2-07_ESCALATION_MATRIX.md
   3. C2-07_VERIFICATION.md
 
+### C2-08 - Pilot rollout controls and signoff records
+- Status: DONE
+- Estimate: 6h
+- Scope:
+  - Add shop allowlist controls for pilot activation management.
+  - Add per-shop rollout checklist and operator signoff persistence.
+  - Add optional rollout enforcement gate for workflow import/push endpoints.
+- Artifacts:
+  1. C2-08_VERIFICATION.md
+
 ## Weekly Cadence
 
 - Session 1 (2h): Build task

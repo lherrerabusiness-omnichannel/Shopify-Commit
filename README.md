@@ -278,6 +278,23 @@ External pilot handoff and acceptance gate (C2-07):
   - `C2-07_PILOT_RUNBOOK.md`
   - `C2-07_ESCALATION_MATRIX.md`
 
+Pilot rollout controls and signoff gate (C2-08):
+
+- Embedded shell now includes explicit pilot rollout controls for each shop:
+  - allowlist membership
+  - rollout checklist state
+  - operator signoff record
+- New rollout endpoints:
+  - `GET /api/pilot/rollout/latest`
+  - `POST /api/pilot/rollout/allowlist` (`action: add|remove`, optional `actor`, `note`)
+  - `POST /api/pilot/rollout/checklist` (`checklist` object keyed by item id)
+  - `POST /api/pilot/rollout/signoff` (`approved`, `approvedBy`, optional `ticketRef`, `notes`)
+- Rollout state persistence:
+  - allowlist: `data/pilot/pilot-allowlist.json`
+  - per-shop rollout state: `data/shops/<shop_key>/ui-session/embedded-pilot-rollout-state.json`
+- Optional workflow gate enforcement:
+  - set `PILOT_ROLLOUT_ENFORCE=true` to block `/api/workflow/import` and `/api/workflow/push` until rollout is approved.
+
 Per-shop data partitioning (C1-01):
 
 - Embedded workflow runtime state is now isolated by shop context.
