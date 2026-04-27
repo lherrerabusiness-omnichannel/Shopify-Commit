@@ -19,6 +19,7 @@ const CLIENT_ID = String(process.env.SHOPIFY_CLIENT_ID || "").trim();
 const CLIENT_SECRET = String(process.env.SHOPIFY_CLIENT_SECRET || "").trim();
 const DEFAULT_SCOPES = String(process.env.SHOPIFY_SCOPES || "read_products,write_products").trim();
 const REDIRECT_URI = String(process.env.EMBEDDED_SHOPIFY_REDIRECT_URI || `http://${HOST}:${PORT}/auth/callback`).trim();
+const SHOPIFY_API_VERSION = String(process.env.SHOPIFY_API_VERSION || "2025-10").trim();
 const EMBEDDED_ALLOW_LIVE_PUSH = String(process.env.EMBEDDED_ALLOW_LIVE_PUSH || "false").toLowerCase() === "true";
 const PILOT_ROLLOUT_ENFORCE = String(process.env.PILOT_ROLLOUT_ENFORCE || "false").toLowerCase() === "true";
 const STORE_DB_PATH = path.resolve(process.cwd(), "data/shopify-store-db.json");
@@ -55,6 +56,7 @@ function getShopPaths(shopKey) {
     pilotRolloutStatePath: path.resolve(process.cwd(), `${sessionDirRel}/embedded-pilot-rollout-state.json`),
     pilotTelemetryPath: path.resolve(process.cwd(), `${sessionDirRel}/pilot-telemetry.jsonl`),
     productTypeLearningPath: path.resolve(process.cwd(), `${sessionDirRel}/product-type-learning.json`),
+    listingConsistencyPath: path.resolve(process.cwd(), `${sessionDirRel}/listing-consistency.json`),
     brandProfilePath: path.resolve(process.cwd(), `${sessionDirRel}/embedded-brand-profile.json`),
   };
 }
@@ -68,6 +70,10 @@ const CONFIDENCE_CRITICAL = 70;
 const CONFIDENCE_LOW = 85;
 const MAX_UPLOAD_IMAGES = 80;
 const MAX_UPLOAD_IMAGE_BYTES = 12 * 1024 * 1024;
+const CATEGORY_CONTEXT_CACHE_TTL_MS = 5 * 60 * 1000;
+const CATEGORY_CONTEXT_MAX_PRODUCTS = 12;
+
+const categoryContextCache = new Map();
 
 function toPosixPath(value) {
   return String(value || "").replace(/\\/g, "/");
@@ -801,6 +807,276 @@ function resolveAliasProductTypeFromStoreDb(shortDescription, imageNames, storeD
   return "";
 }
 
+function buildEmptyCategoryContext(productType, source = "none") {
+  return {
+    source,
+    productType: String(productType || "").trim(),
+    fetchedAt: "",
+    exampleCount: 0,
+    sampleTitles: [],
+    commonTags: [],
+    commonVendors: [],
+    medianPrice: "",
+    sampleImageUrls: [],
+  };
+}
+
+function takeTopValues(values, limit = 8) {
+  const tally = new Map();
+  for (const raw of Array.isArray(values) ? values : []) {
+    const value = String(raw || "").trim();
+    if (!value) continue;
+    const key = value.toLowerCase();
+    const prev = tally.get(key) || { value, count: 0 };
+    prev.count += 1;
+    tally.set(key, prev);
+  }
+  return Array.from(tally.values())
+    .sort((a, b) => b.count - a.count)
+    .slice(0, Math.max(1, limit))
+    .map((x) => x.value);
+}
+
+function medianPrice(values) {
+  const nums = (Array.isArray(values) ? values : [])
+    .map((x) => Number(String(x || "").replace(/[^0-9.]/g, "")))
+    .filter((x) => Number.isFinite(x) && x > 0)
+    .sort((a, b) => a - b);
+  if (!nums.length) return "";
+  const mid = Math.floor(nums.length / 2);
+  const median = nums.length % 2 ? nums[mid] : (nums[mid - 1] + nums[mid]) / 2;
+  return median.toFixed(2);
+}
+
+async function fetchCategoryContextFromShopify(shop, accessToken, productType) {
+  const normalizedShop = normalizeShop(shop);
+  const normalizedType = String(productType || "").trim();
+  if (!normalizedShop || !accessToken || !normalizedType) {
+    return buildEmptyCategoryContext(normalizedType, "insufficient-context");
+  }
+
+  const cacheKey = `${normalizedShop}::${normalizeComparable(normalizedType)}`;
+  const now = Date.now();
+  const cached = categoryContextCache.get(cacheKey);
+  if (cached && (now - cached.cachedAtMs) < CATEGORY_CONTEXT_CACHE_TTL_MS) {
+    return cached.value;
+  }
+
+  const escapedType = normalizedType.replace(/'/g, "\\'");
+  const query = `
+    query CategoryExamples($first: Int!, $query: String!) {
+      products(first: $first, query: $query, sortKey: UPDATED_AT, reverse: true) {
+        edges {
+          node {
+            title
+            productType
+            vendor
+            tags
+            featuredImage { url }
+            variants(first: 10) {
+              edges {
+                node {
+                  price
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  `;
+
+  try {
+    const response = await fetch(`https://${normalizedShop}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Shopify-Access-Token": String(accessToken),
+      },
+      body: JSON.stringify({
+        query,
+        variables: {
+          first: CATEGORY_CONTEXT_MAX_PRODUCTS,
+          query: `product_type:'${escapedType}'`,
+        },
+      }),
+    });
+
+    const payload = await response.json();
+    if (!response.ok || (payload && Array.isArray(payload.errors) && payload.errors.length)) {
+      return buildEmptyCategoryContext(normalizedType, "shopify-error");
+    }
+
+    const edges = payload && payload.data && payload.data.products && Array.isArray(payload.data.products.edges)
+      ? payload.data.products.edges
+      : [];
+    const products = edges.map((edge) => edge && edge.node ? edge.node : null).filter(Boolean);
+    const titles = products.map((p) => String(p.title || "").trim()).filter(Boolean);
+    const vendors = products.map((p) => String(p.vendor || "").trim()).filter(Boolean);
+    const tags = products.flatMap((p) => Array.isArray(p.tags) ? p.tags : []);
+    const prices = products.flatMap((p) => {
+      const variantEdges = p && p.variants && Array.isArray(p.variants.edges) ? p.variants.edges : [];
+      return variantEdges
+        .map((edge) => edge && edge.node ? edge.node : null)
+        .filter(Boolean)
+        .map((v) => String(v.price || "").trim())
+        .filter(Boolean);
+    });
+    const imageUrls = products
+      .map((p) => p && p.featuredImage && p.featuredImage.url ? String(p.featuredImage.url).trim() : "")
+      .filter(Boolean)
+      .slice(0, 6);
+
+    const result = {
+      source: "shopify-live-category",
+      productType: normalizedType,
+      fetchedAt: new Date().toISOString(),
+      exampleCount: products.length,
+      sampleTitles: titles.slice(0, 6),
+      commonTags: takeTopValues(tags, 10),
+      commonVendors: takeTopValues(vendors, 5),
+      medianPrice: medianPrice(prices),
+      sampleImageUrls: imageUrls,
+    };
+
+    categoryContextCache.set(cacheKey, {
+      cachedAtMs: now,
+      value: result,
+    });
+
+    return result;
+  } catch {
+    return buildEmptyCategoryContext(normalizedType, "shopify-fetch-failed");
+  }
+}
+
+async function getCategoryContextForShop(shopContext, productType) {
+  const tokenEntry = getTokenByShop(shopContext && shopContext.shop);
+  const accessToken = tokenEntry && tokenEntry.accessToken ? String(tokenEntry.accessToken) : "";
+  if (!accessToken) {
+    return buildEmptyCategoryContext(productType, "no-shop-token");
+  }
+  return fetchCategoryContextFromShopify(shopContext.shop, accessToken, productType);
+}
+
+function createEmptyListingConsistencyState() {
+  return {
+    updatedAt: "",
+    entries: [],
+  };
+}
+
+function readListingConsistencyState(filePath) {
+  if (!fs.existsSync(filePath)) {
+    return createEmptyListingConsistencyState();
+  }
+  try {
+    const value = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    return {
+      updatedAt: String(value.updatedAt || ""),
+      entries: Array.isArray(value.entries)
+        ? value.entries.map((entry) => ({
+          productType: String(entry.productType || "").trim(),
+          title: String(entry.title || "").trim(),
+          vendor: String(entry.vendor || "").trim(),
+          tags: Array.isArray(entry.tags)
+            ? entry.tags.map((x) => String(x || "").trim()).filter(Boolean)
+            : [],
+          price: String(entry.price || "").trim(),
+          baseType: String(entry.baseType || "").trim(),
+          voltage: String(entry.voltage || "").trim(),
+          wattage: String(entry.wattage || "").trim(),
+          colorTemp: String(entry.colorTemp || "").trim(),
+          capturedAt: String(entry.capturedAt || ""),
+        })).filter((entry) => entry.productType)
+        : [],
+    };
+  } catch {
+    return createEmptyListingConsistencyState();
+  }
+}
+
+function writeListingConsistencyState(filePath, next) {
+  ensureDirs();
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+}
+
+function recordListingConsistencyFromRows(shopContext, rows) {
+  const current = readListingConsistencyState(shopContext.paths.listingConsistencyPath);
+  const entries = Array.isArray(current.entries) ? current.entries.slice() : [];
+  const now = new Date().toISOString();
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const productType = String((row && (row.product_type || row.productType)) || "").trim();
+    if (!productType) continue;
+    entries.push({
+      productType,
+      title: String((row && row.title) || "").trim(),
+      vendor: String((row && row.vendor) || "").trim(),
+      tags: splitListField(row && row.tags),
+      price: String((row && row.price) || "").trim(),
+      baseType: String((row && row.base_type) || "").trim(),
+      voltage: String((row && row.voltage) || "").trim(),
+      wattage: String((row && row.wattage) || "").trim(),
+      colorTemp: String((row && row.color_temp) || "").trim(),
+      capturedAt: now,
+    });
+  }
+
+  const next = {
+    updatedAt: now,
+    entries: entries.slice(-1500),
+  };
+  writeListingConsistencyState(shopContext.paths.listingConsistencyPath, next);
+  return next;
+}
+
+function buildConsistencyReference(productType, liveCategoryContext, listingConsistencyState, categoryProfile = null) {
+  const normalizedType = normalizeComparable(productType);
+  const appEntries = (listingConsistencyState && Array.isArray(listingConsistencyState.entries)
+    ? listingConsistencyState.entries
+    : []).filter((entry) => normalizeComparable(entry.productType) === normalizedType);
+
+  const appTitles = appEntries.map((x) => x.title).filter(Boolean);
+  const appVendors = appEntries.map((x) => x.vendor).filter(Boolean);
+  const appTags = appEntries.flatMap((x) => Array.isArray(x.tags) ? x.tags : []);
+  const appPrices = appEntries.map((x) => x.price).filter(Boolean);
+  const appBaseTypes = appEntries.map((x) => x.baseType).filter(Boolean);
+  const appVoltages = appEntries.map((x) => x.voltage).filter(Boolean);
+  const appWattages = appEntries.map((x) => x.wattage).filter(Boolean);
+  const appColorTemps = appEntries.map((x) => x.colorTemp).filter(Boolean);
+
+  const live = liveCategoryContext || buildEmptyCategoryContext(productType, "none");
+  const titleExamples = takeTopValues([...(live.sampleTitles || []), ...appTitles], 8);
+  const vendorOptions = takeTopValues([...(live.commonVendors || []), ...appVendors], 6);
+  const tagOptions = takeTopValues([...(live.commonTags || []), ...appTags], 14);
+  const requiredTags = Array.isArray(categoryProfile && categoryProfile.requiredTags) ? categoryProfile.requiredTags : [];
+  const requiredFields = Array.isArray(categoryProfile && categoryProfile.requiredFields) ? categoryProfile.requiredFields : [];
+
+  const source = appEntries.length > 0
+    ? (live.exampleCount > 0 ? "shopify-live+app-history" : "app-history")
+    : (live.exampleCount > 0 ? "shopify-live" : "none");
+
+  return {
+    source,
+    productType: String(productType || "").trim(),
+    exampleCount: Number(live.exampleCount || 0) + appEntries.length,
+    requiredFields,
+    requiredTags,
+    titleExamples,
+    fieldOptions: {
+      vendor: vendorOptions,
+      tags: tagOptions,
+      price: takeTopValues([medianPrice(appPrices), String(live.medianPrice || "")], 2).filter(Boolean),
+      base_type: takeTopValues(appBaseTypes, 6),
+      voltage: takeTopValues(appVoltages, 6),
+      wattage: takeTopValues(appWattages, 6),
+      color_temp: takeTopValues(appColorTemps, 6),
+    },
+    liveCategoryContext: live,
+  };
+}
+
 function inferSignalsFromContext(shortDescription, imageNames, productType) {
   const joined = `${String(shortDescription || "")} ${Array.isArray(imageNames) ? imageNames.join(" ") : ""} ${String(productType || "")}`;
   const normalized = normalizeComparable(joined);
@@ -867,6 +1143,7 @@ function buildStrongProductPrompt(options = {}) {
   const templateDefaults = options.templateDefaults || null;
   const typeHints = options.typeHints || { suggestedTags: [], matchingCollections: [] };
   const categoryProfile = options.categoryProfile || { requiredFields: [], requiredTags: [] };
+  const consistencyReference = options.consistencyReference || { source: "none", fieldOptions: {} };
   const inferred = options.inferred || {};
 
   const knownFacts = [
@@ -885,6 +1162,10 @@ function buildStrongProductPrompt(options = {}) {
     `Matching collections by catalog: ${Array.isArray(typeHints.matchingCollections) && typeHints.matchingCollections.length ? typeHints.matchingCollections.join(", ") : "(none)"}`,
     `Required fields for this category: ${Array.isArray(categoryProfile.requiredFields) && categoryProfile.requiredFields.length ? categoryProfile.requiredFields.join(", ") : "(none)"}`,
     `Required tags for this category: ${Array.isArray(categoryProfile.requiredTags) && categoryProfile.requiredTags.length ? categoryProfile.requiredTags.join(", ") : "(none)"}`,
+    `Consistency source: ${consistencyReference.source || "none"}`,
+    `Consistency vendor options: ${Array.isArray(consistencyReference.fieldOptions && consistencyReference.fieldOptions.vendor) ? consistencyReference.fieldOptions.vendor.join(", ") : "(none)"}`,
+    `Consistency tag options: ${Array.isArray(consistencyReference.fieldOptions && consistencyReference.fieldOptions.tags) ? consistencyReference.fieldOptions.tags.join(", ") : "(none)"}`,
+    `Consistency price options: ${Array.isArray(consistencyReference.fieldOptions && consistencyReference.fieldOptions.price) ? consistencyReference.fieldOptions.price.join(", ") : "(none)"}`,
     `Inferred specs from names/context: voltage=${inferred.voltage || ""}, wattage=${inferred.wattage || ""}, lumens=${inferred.lumenOutput || ""}, color_temp=${inferred.colorTemp || ""}, base_type=${inferred.baseType || ""}, material=${inferred.material || ""}, ip_rating=${inferred.ipRating || ""}`,
   ];
 
@@ -1082,6 +1363,8 @@ function applyAutofillToRow(row, options = {}) {
   const suggestedProductType = String(options.suggestedProductType || "").trim();
   const templateDefaults = options.templateDefaults || null;
   const brandProfile = options.brandProfile || createEmptyBrandProfile();
+  const consistencyReference = options.consistencyReference || { fieldOptions: {} };
+  const consistencyOptions = consistencyReference.fieldOptions || {};
   const storeDb = readStoreDb();
   const inferred = inferSignalsFromContext(shortDescription, imageNames, suggestedProductType || next.product_type);
 
@@ -1097,6 +1380,7 @@ function applyAutofillToRow(row, options = {}) {
     templateDefaults && templateDefaults.defaultTags,
     typeHints.suggestedTags,
     inferred.suggestedTags,
+    consistencyOptions.tags,
     Array.isArray(categoryProfile.requiredTags) ? categoryProfile.requiredTags : []
   );
 
@@ -1159,13 +1443,21 @@ function applyAutofillToRow(row, options = {}) {
     next.product_type = effectiveProductType;
   }
   if (Object.prototype.hasOwnProperty.call(next, "vendor") && !String(next.vendor || "").trim()) {
-    next.vendor = firstNonEmpty([brandIdentity, brandProfile.brandName, brandProfile.brandVendor]);
+    next.vendor = firstNonEmpty([
+      brandIdentity,
+      consistencyOptions.vendor && consistencyOptions.vendor[0],
+      brandProfile.brandName,
+      brandProfile.brandVendor,
+    ]);
   }
   if (Object.prototype.hasOwnProperty.call(next, "brand") && !String(next.brand || "").trim()) {
     next.brand = brandIdentity;
   }
   if (Object.prototype.hasOwnProperty.call(next, "price") && !String(next.price || "").trim()) {
-    next.price = firstNonEmpty([templateDefaults && templateDefaults.defaultPrice]);
+    next.price = firstNonEmpty([
+      templateDefaults && templateDefaults.defaultPrice,
+      consistencyOptions.price && consistencyOptions.price[0],
+    ]);
   }
   if (Object.prototype.hasOwnProperty.call(next, "tags") && !String(next.tags || "").trim()) {
     next.tags = mergedTags.join("|");
@@ -1180,19 +1472,19 @@ function applyAutofillToRow(row, options = {}) {
     next.title_seed = compactTitle || title;
   }
   if (Object.prototype.hasOwnProperty.call(next, "base_type") && !String(next.base_type || "").trim()) {
-    next.base_type = inferred.baseType;
+    next.base_type = firstNonEmpty([inferred.baseType, consistencyOptions.base_type && consistencyOptions.base_type[0]]);
   }
   if (Object.prototype.hasOwnProperty.call(next, "wattage") && !String(next.wattage || "").trim()) {
-    next.wattage = inferred.wattage;
+    next.wattage = firstNonEmpty([inferred.wattage, consistencyOptions.wattage && consistencyOptions.wattage[0]]);
   }
   if (Object.prototype.hasOwnProperty.call(next, "voltage") && !String(next.voltage || "").trim()) {
-    next.voltage = inferred.voltage;
+    next.voltage = firstNonEmpty([inferred.voltage, consistencyOptions.voltage && consistencyOptions.voltage[0]]);
   }
   if (Object.prototype.hasOwnProperty.call(next, "lumen_output") && !String(next.lumen_output || "").trim()) {
     next.lumen_output = inferred.lumenOutput;
   }
   if (Object.prototype.hasOwnProperty.call(next, "color_temp") && !String(next.color_temp || "").trim()) {
-    next.color_temp = inferred.colorTemp;
+    next.color_temp = firstNonEmpty([inferred.colorTemp, consistencyOptions.color_temp && consistencyOptions.color_temp[0]]);
   }
   if (Object.prototype.hasOwnProperty.call(next, "material") && !String(next.material || "").trim()) {
     next.material = inferred.material;
@@ -1213,6 +1505,9 @@ function applyAutofillToRow(row, options = {}) {
     }
     if (shortDescription) {
       notes.push(`goal=${shortDescription.slice(0, 120)}`);
+    }
+    if (consistencyReference.source) {
+      notes.push(`consistency=${consistencyReference.source}`);
     }
     next.source_notes = notes.join("; ");
   }
@@ -1936,6 +2231,7 @@ async function performWorkflowImport(shopContext, payload) {
     shopContext.workflowState.latestOutputPath = toPosixPath(result.outputPath);
     shopContext.workflowState.latestReportPath = toPosixPath(result.reportPath);
     shopContext.workflowState.latestRows = Array.isArray(result.rows) ? result.rows : [];
+    recordListingConsistencyFromRows(shopContext, result.rows);
     appendTelemetrySnapshot(shopContext, pilotAudit, {
       inputPath: toPosixPath(inputPath),
       reportPath: toPosixPath(result.reportPath),
@@ -3218,6 +3514,13 @@ function createServer() {
           preset: firstNonEmpty([profile.preset, fallbackProfile.preset]),
           notes: firstNonEmpty([profile.notes, fallbackProfile.notes]),
         };
+        const categoryContext = await getCategoryContextForShop(shopContext, suggestedProductType);
+        const consistencyState = readListingConsistencyState(shopContext.paths.listingConsistencyPath);
+        const consistencyReference = buildConsistencyReference(
+          suggestedProductType,
+          categoryContext,
+          consistencyState
+        );
         const templateDefaults = readTemplateDefaults(shortDescription, imageNames);
         const draft = composeDraftCsvFromImages(headers, {
           shortDescription,
@@ -3232,11 +3535,18 @@ function createServer() {
           suggestedProductType,
           templateDefaults,
           brandProfile,
+          consistencyReference,
         });
         const storeDb = readStoreDb();
         const effectiveType = String(autofilledRow.product_type || suggestedProductType || "").trim();
         const typeHints = getStoreDbTypeHints(effectiveType, storeDb);
         const categoryProfile = getCategoryProfileForType(effectiveType, storeDb);
+        const effectiveConsistencyReference = buildConsistencyReference(
+          effectiveType,
+          categoryContext,
+          consistencyState,
+          categoryProfile
+        );
         const inferred = inferSignalsFromContext(shortDescription, imageNames, effectiveType);
         const generationPrompt = buildStrongProductPrompt({
           shortDescription,
@@ -3247,6 +3557,7 @@ function createServer() {
           templateDefaults,
           typeHints,
           categoryProfile,
+          consistencyReference: effectiveConsistencyReference,
           inferred,
         });
         const csvContent = [
@@ -3271,6 +3582,7 @@ function createServer() {
             contextSignals: {
               categoryProfile,
               typeHints,
+              consistencyReference: effectiveConsistencyReference,
               inferred,
             },
           },
@@ -3356,6 +3668,14 @@ function createServer() {
           preset: firstNonEmpty([profile.preset, fallbackProfile.preset]),
           notes: firstNonEmpty([profile.notes, fallbackProfile.notes]),
         };
+        const lookupType = firstNonEmpty([suggestedProductType, row.product_type]);
+        const categoryContext = await getCategoryContextForShop(shopContext, lookupType);
+        const consistencyState = readListingConsistencyState(shopContext.paths.listingConsistencyPath);
+        const consistencyReference = buildConsistencyReference(
+          lookupType,
+          categoryContext,
+          consistencyState
+        );
         const templateDefaults = readTemplateDefaults(shortDescription, imageNames);
         const filled = applyAutofillToRow(row, {
           shortDescription,
@@ -3364,11 +3684,18 @@ function createServer() {
           suggestedProductType,
           templateDefaults,
           brandProfile,
+          consistencyReference,
         });
         const storeDb = readStoreDb();
         const effectiveType = String(filled.product_type || suggestedProductType || "").trim();
         const typeHints = getStoreDbTypeHints(effectiveType, storeDb);
         const categoryProfile = getCategoryProfileForType(effectiveType, storeDb);
+        const effectiveConsistencyReference = buildConsistencyReference(
+          effectiveType,
+          categoryContext,
+          consistencyState,
+          categoryProfile
+        );
         const inferred = inferSignalsFromContext(shortDescription, imageNames, effectiveType);
         const generationPrompt = buildStrongProductPrompt({
           shortDescription,
@@ -3379,6 +3706,7 @@ function createServer() {
           templateDefaults,
           typeHints,
           categoryProfile,
+          consistencyReference: effectiveConsistencyReference,
           inferred,
         });
         const csvContent = [
@@ -3397,6 +3725,7 @@ function createServer() {
             contextSignals: {
               categoryProfile,
               typeHints,
+              consistencyReference: effectiveConsistencyReference,
               inferred,
             },
           },
