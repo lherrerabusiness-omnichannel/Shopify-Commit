@@ -545,12 +545,17 @@
             <div class="workflow" style="margin-top:0;">
               <h3>Brand context for listing generation</h3>
               <div class="inline">
+                <input id="brandDisplayNameInput" type="text" placeholder="Brand display name (e.g., Ironsmith Lighting Products)" />
                 <input id="brandNameInput" type="text" placeholder="Brand name" />
                 <input id="brandVendorInput" type="text" placeholder="Brand vendor" />
               </div>
               <div class="inline">
                 <input id="brandWebsiteInput" type="text" placeholder="Brand website URL (reference for personalized listing context)" />
+                <input id="brandProfileImageUrlInput" type="text" placeholder="Brand profile image / logo URL" />
                 <input id="brandPresetInput" type="text" placeholder="Preset name (e.g., premium-outdoor)" />
+              </div>
+              <div class="inline" style="margin-top:6px;">
+                <img id="brandProfileImagePreview" alt="Brand profile preview" style="display:none;max-height:48px;max-width:120px;border:1px solid var(--line);border-radius:6px;background:#fff;" />
               </div>
               <div class="inline">
                 <input id="brandToneInput" type="text" placeholder="Tone (e.g., modern, expert, technical)" />
@@ -890,9 +895,12 @@
     const runBootstrapBtn = document.getElementById("runBootstrapBtn");
     const refreshBootstrapBtn = document.getElementById("refreshBootstrapBtn");
     const bootstrapStatus = document.getElementById("bootstrapStatus");
+    const brandDisplayNameInput = document.getElementById("brandDisplayNameInput");
     const brandNameInput = document.getElementById("brandNameInput");
     const brandVendorInput = document.getElementById("brandVendorInput");
     const brandWebsiteInput = document.getElementById("brandWebsiteInput");
+    const brandProfileImageUrlInput = document.getElementById("brandProfileImageUrlInput");
+    const brandProfileImagePreview = document.getElementById("brandProfileImagePreview");
     const brandPresetInput = document.getElementById("brandPresetInput");
     const brandToneInput = document.getElementById("brandToneInput");
     const brandNotesInput = document.getElementById("brandNotesInput");
@@ -1235,13 +1243,27 @@
     function summarizeBrandProfile(profile) {
       const p = profile || {};
       return [
+        `display: ${p.brandDisplayName || "n/a"}`,
         `brand: ${p.brandName || "n/a"}`,
         `vendor: ${p.brandVendor || "n/a"}`,
         `website: ${p.websiteUrl || "n/a"}`,
+        `profile_image: ${p.profileImageUrl || "n/a"}`,
         `preset: ${p.preset || "n/a"}`,
         `tone: ${p.tone || "n/a"}`,
         `updated: ${p.updatedAt || "n/a"}`,
       ].join("\n");
+    }
+
+    function renderBrandProfileImagePreview(url) {
+      const src = String(url || "").trim();
+      if (!brandProfileImagePreview) return;
+      if (!src) {
+        brandProfileImagePreview.style.display = "none";
+        brandProfileImagePreview.removeAttribute("src");
+        return;
+      }
+      brandProfileImagePreview.src = src;
+      brandProfileImagePreview.style.display = "block";
     }
 
     async function loadBrandProfile() {
@@ -1253,12 +1275,15 @@
         }
         latestBrandProfile = data.brandProfile || null;
         const p = latestBrandProfile || {};
+        brandDisplayNameInput.value = p.brandDisplayName || "";
         brandNameInput.value = p.brandName || "";
         brandVendorInput.value = p.brandVendor || "";
         brandWebsiteInput.value = p.websiteUrl || "";
+        brandProfileImageUrlInput.value = p.profileImageUrl || "";
         brandPresetInput.value = p.preset || "";
         brandToneInput.value = p.tone || "";
         brandNotesInput.value = p.notes || "";
+        renderBrandProfileImagePreview(p.profileImageUrl || "");
         brandProfileStatus.textContent = summarizeBrandProfile(latestBrandProfile);
       } catch (error) {
         brandProfileStatus.textContent = `Could not load brand profile: ${String(error && error.message ? error.message : error)}`;
@@ -1269,9 +1294,11 @@
       brandProfileSaveBtn.disabled = true;
       try {
         const payload = {
+          brandDisplayName: String(brandDisplayNameInput.value || "").trim(),
           brandName: String(brandNameInput.value || "").trim(),
           brandVendor: String(brandVendorInput.value || "").trim(),
           websiteUrl: String(brandWebsiteInput.value || "").trim(),
+          profileImageUrl: String(brandProfileImageUrlInput.value || "").trim(),
           preset: String(brandPresetInput.value || "").trim(),
           tone: String(brandToneInput.value || "").trim(),
           notes: String(brandNotesInput.value || "").trim(),
@@ -1282,6 +1309,7 @@
           throw new Error(data.error || "Could not save brand profile.");
         }
         latestBrandProfile = data.brandProfile || null;
+        renderBrandProfileImagePreview((latestBrandProfile && latestBrandProfile.profileImageUrl) || "");
         brandProfileStatus.textContent = summarizeBrandProfile(latestBrandProfile);
       } catch (error) {
         brandProfileStatus.textContent = `Could not save brand profile: ${String(error && error.message ? error.message : error)}`;
@@ -2600,6 +2628,10 @@
 
     quickDescriptionInput.addEventListener("input", () => {
       scheduleAutoTemplateGeneration("description-edit");
+    });
+
+    brandProfileImageUrlInput.addEventListener("input", () => {
+      renderBrandProfileImagePreview(brandProfileImageUrlInput.value || "");
     });
 
     quickProductTypeInput.addEventListener("input", () => {

@@ -873,9 +873,11 @@ function buildStrongProductPrompt(options = {}) {
     `Product type candidate: ${suggestedProductType || "unknown"}`,
     `Short goal: ${shortDescription || "(none provided)"}`,
     `Images: ${imageNames.length ? imageNames.join(", ") : "(none)"}`,
+    `Brand display name: ${brandProfile.brandDisplayName || "(none)"}`,
     `Brand: ${brandProfile.brandName || "(none)"}`,
     `Vendor: ${brandProfile.brandVendor || "(none)"}`,
     `Brand website: ${brandProfile.websiteUrl || "(none)"}`,
+    `Brand profile image: ${brandProfile.profileImageUrl || "(none)"}`,
     `Tone: ${brandProfile.tone || "expert, concise"}`,
     `Template default description: ${templateDefaults && templateDefaults.defaultDescription || "(none)"}`,
     `Template default price: ${templateDefaults && templateDefaults.defaultPrice || "(none)"}`,
@@ -930,9 +932,11 @@ function defaultValueForMetafieldType(typeName) {
 function createEmptyBrandProfile() {
   return {
     updatedAt: "",
+    brandDisplayName: "",
     brandName: "",
     brandVendor: "",
     websiteUrl: "",
+    profileImageUrl: "",
     preset: "",
     tone: "",
     notes: "",
@@ -947,9 +951,11 @@ function readBrandProfile(filePath) {
     const value = JSON.parse(fs.readFileSync(filePath, "utf8"));
     return {
       updatedAt: String(value.updatedAt || ""),
+      brandDisplayName: String(value.brandDisplayName || "").trim(),
       brandName: String(value.brandName || "").trim(),
       brandVendor: String(value.brandVendor || "").trim(),
       websiteUrl: String(value.websiteUrl || "").trim(),
+      profileImageUrl: String(value.profileImageUrl || "").trim(),
       preset: String(value.preset || "").trim(),
       tone: String(value.tone || "").trim(),
       notes: String(value.notes || "").trim(),
@@ -981,9 +987,11 @@ function readDefaultBrandProfileFromCsv() {
     if (!row) return createEmptyBrandProfile();
     return {
       updatedAt: "",
+      brandDisplayName: String(row.brand_display_name || row.brand_name || "").trim(),
       brandName: String(row.brand_name || "").trim(),
       brandVendor: String(row.brand_vendor || "").trim(),
       websiteUrl: String(row.website_url || row.brand_website || "").trim(),
+      profileImageUrl: String(row.profile_image_url || row.brand_image_url || "").trim(),
       preset: String(row.profile_name || "").trim(),
       tone: "",
       notes: String(row.default_description || "").trim(),
@@ -1053,7 +1061,8 @@ function generateShortDescriptionFromContext(options = {}) {
   const keywords = Array.from(keywordSet);
   const lead = suggestedProductType || "product listing";
   const detail = keywords.length ? `with focus on ${keywords.join(", ")}` : "with clear specs and practical use guidance";
-  const brandText = brandProfile.brandName ? `for ${brandProfile.brandName}` : "";
+  const brandLabel = firstNonEmpty([brandProfile.brandDisplayName, brandProfile.brandName, brandProfile.brandVendor]);
+  const brandText = brandLabel ? `for ${brandLabel}` : "";
   return `${lead} ${brandText} ${detail}`.replace(/\s+/g, " ").trim();
 }
 
@@ -1091,11 +1100,12 @@ function applyAutofillToRow(row, options = {}) {
     Array.isArray(categoryProfile.requiredTags) ? categoryProfile.requiredTags : []
   );
 
-  const titleLead = firstNonEmpty([
+  const brandIdentity = firstNonEmpty([
+    brandProfile.brandDisplayName,
     brandProfile.brandName,
     brandProfile.brandVendor,
-    "",
   ]);
+  const titleLead = brandIdentity;
   const compactTitle = [
     titleLead,
     effectiveProductType,
@@ -1149,10 +1159,10 @@ function applyAutofillToRow(row, options = {}) {
     next.product_type = effectiveProductType;
   }
   if (Object.prototype.hasOwnProperty.call(next, "vendor") && !String(next.vendor || "").trim()) {
-    next.vendor = firstNonEmpty([brandProfile.brandVendor, brandProfile.brandName]);
+    next.vendor = firstNonEmpty([brandIdentity, brandProfile.brandName, brandProfile.brandVendor]);
   }
   if (Object.prototype.hasOwnProperty.call(next, "brand") && !String(next.brand || "").trim()) {
-    next.brand = brandProfile.brandName;
+    next.brand = brandIdentity;
   }
   if (Object.prototype.hasOwnProperty.call(next, "price") && !String(next.price || "").trim()) {
     next.price = firstNonEmpty([templateDefaults && templateDefaults.defaultPrice]);
@@ -3097,9 +3107,11 @@ function createServer() {
         const brandProfile = {
           ...fallback,
           ...stored,
+          brandDisplayName: firstNonEmpty([stored.brandDisplayName, fallback.brandDisplayName, stored.brandName, fallback.brandName]),
           brandName: firstNonEmpty([stored.brandName, fallback.brandName]),
           brandVendor: firstNonEmpty([stored.brandVendor, fallback.brandVendor]),
           websiteUrl: firstNonEmpty([stored.websiteUrl, fallback.websiteUrl]),
+          profileImageUrl: firstNonEmpty([stored.profileImageUrl, fallback.profileImageUrl]),
           preset: firstNonEmpty([stored.preset, fallback.preset]),
           notes: firstNonEmpty([stored.notes, fallback.notes]),
         };
@@ -3120,9 +3132,11 @@ function createServer() {
         const next = {
           ...current,
           updatedAt: new Date().toISOString(),
+          brandDisplayName: String(body.brandDisplayName || "").trim(),
           brandName: String(body.brandName || "").trim(),
           brandVendor: String(body.brandVendor || "").trim(),
           websiteUrl: String(body.websiteUrl || "").trim(),
+          profileImageUrl: String(body.profileImageUrl || "").trim(),
           preset: String(body.preset || "").trim(),
           tone: String(body.tone || "").trim(),
           notes: String(body.notes || "").trim(),
@@ -3196,9 +3210,11 @@ function createServer() {
         const brandProfile = {
           ...fallbackProfile,
           ...profile,
+          brandDisplayName: firstNonEmpty([profile.brandDisplayName, fallbackProfile.brandDisplayName, profile.brandName, fallbackProfile.brandName]),
           brandName: firstNonEmpty([profile.brandName, fallbackProfile.brandName]),
           brandVendor: firstNonEmpty([profile.brandVendor, fallbackProfile.brandVendor]),
           websiteUrl: firstNonEmpty([profile.websiteUrl, fallbackProfile.websiteUrl]),
+          profileImageUrl: firstNonEmpty([profile.profileImageUrl, fallbackProfile.profileImageUrl]),
           preset: firstNonEmpty([profile.preset, fallbackProfile.preset]),
           notes: firstNonEmpty([profile.notes, fallbackProfile.notes]),
         };
@@ -3286,7 +3302,11 @@ function createServer() {
         const brandProfile = {
           ...fallbackProfile,
           ...profile,
+          brandDisplayName: firstNonEmpty([profile.brandDisplayName, fallbackProfile.brandDisplayName, profile.brandName, fallbackProfile.brandName]),
           brandName: firstNonEmpty([profile.brandName, fallbackProfile.brandName]),
+          brandVendor: firstNonEmpty([profile.brandVendor, fallbackProfile.brandVendor]),
+          websiteUrl: firstNonEmpty([profile.websiteUrl, fallbackProfile.websiteUrl]),
+          profileImageUrl: firstNonEmpty([profile.profileImageUrl, fallbackProfile.profileImageUrl]),
         };
         const generatedText = generateShortDescriptionFromContext({
           imageNames,
@@ -3328,9 +3348,11 @@ function createServer() {
         const brandProfile = {
           ...fallbackProfile,
           ...profile,
+          brandDisplayName: firstNonEmpty([profile.brandDisplayName, fallbackProfile.brandDisplayName, profile.brandName, fallbackProfile.brandName]),
           brandName: firstNonEmpty([profile.brandName, fallbackProfile.brandName]),
           brandVendor: firstNonEmpty([profile.brandVendor, fallbackProfile.brandVendor]),
           websiteUrl: firstNonEmpty([profile.websiteUrl, fallbackProfile.websiteUrl]),
+          profileImageUrl: firstNonEmpty([profile.profileImageUrl, fallbackProfile.profileImageUrl]),
           preset: firstNonEmpty([profile.preset, fallbackProfile.preset]),
           notes: firstNonEmpty([profile.notes, fallbackProfile.notes]),
         };
