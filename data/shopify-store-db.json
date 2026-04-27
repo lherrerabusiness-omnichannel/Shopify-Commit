@@ -1,10 +1,10 @@
 {
   "version": 1,
-  "generatedAt": "2026-04-27T04:57:10.817Z",
+  "generatedAt": "2026-04-27T07:29:06.305Z",
   "source": {
     "store": "ironsmith-lighting.myshopify.com",
     "apiVersion": "2025-10",
-    "schemaGeneratedAt": "2026-04-27T04:57:09.868Z",
+    "schemaGeneratedAt": "2026-04-27T07:29:04.801Z",
     "schemaPath": "data/shopify-metafields.product.json",
     "rulesPath": "config/store-rules.json"
   },

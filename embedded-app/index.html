@@ -501,55 +501,103 @@
     <main class="content">
       <section class="card">
         <div class="banner" id="appBanner">
-          <strong>Embedded shell ready.</strong>
-          <span>Pass query params host/shop/apiKey to initialize App Bridge and simulate Shopify admin embed context.</span>
+          <strong>Start here: drop CSV + images, then generate.</strong>
+          <span>Connection and admin setup controls are now under "Connection and setup" so everyday listing work stays focused.</span>
         </div>
-        <div class="row">
-          <div class="stat">
-            <div class="k">Mode</div>
-            <div class="v">Embedded Scaffold</div>
+        <details class="expando">
+          <summary>Connection and setup (OAuth, bootstrap, debug)</summary>
+          <div class="expando-body">
+            <div class="row">
+              <div class="stat">
+                <div class="k">Mode</div>
+                <div class="v">Embedded Scaffold</div>
+              </div>
+              <div class="stat">
+                <div class="k">Polaris Shell</div>
+                <div class="v">Navigation + Cards</div>
+              </div>
+              <div class="stat">
+                <div class="k">App Bridge</div>
+                <div class="v" id="bridgeStatus">Not initialized</div>
+              </div>
+            </div>
+            <div class="btns">
+              <button class="btn primary" id="testContextBtn" type="button">Test Context API</button>
+              <button class="btn" id="copyEmbedUrlBtn" type="button">Copy Sample Embedded URL</button>
+            </div>
+            <div class="inline">
+              <input id="shopDomainInput" type="text" placeholder="your-store.myshopify.com" />
+              <button class="btn primary" id="startOAuthBtn" type="button">Connect Store OAuth</button>
+              <button class="btn" id="refreshTokensBtn" type="button">Refresh Tokens</button>
+            </div>
+            <div class="token-list" id="tokenList">No persisted tokens loaded yet.</div>
+            <div class="inline">
+              <button class="btn primary" id="runBootstrapBtn" type="button">Run Install Bootstrap</button>
+              <button class="btn" id="refreshBootstrapBtn" type="button">Refresh Bootstrap</button>
+            </div>
+            <div class="status-list" id="bootstrapStatus">Bootstrap status not loaded yet.</div>
           </div>
-          <div class="stat">
-            <div class="k">Polaris Shell</div>
-            <div class="v">Navigation + Cards</div>
+        </details>
+
+        <details class="expando">
+          <summary>Brand profile and presets (optional)</summary>
+          <div class="expando-body">
+            <div class="workflow" style="margin-top:0;">
+              <h3>Brand context for listing generation</h3>
+              <div class="inline">
+                <input id="brandNameInput" type="text" placeholder="Brand name" />
+                <input id="brandVendorInput" type="text" placeholder="Brand vendor" />
+              </div>
+              <div class="inline">
+                <input id="brandWebsiteInput" type="text" placeholder="Brand website URL (reference for personalized listing context)" />
+                <input id="brandPresetInput" type="text" placeholder="Preset name (e.g., premium-outdoor)" />
+              </div>
+              <div class="inline">
+                <input id="brandToneInput" type="text" placeholder="Tone (e.g., modern, expert, technical)" />
+                <input id="brandNotesInput" type="text" placeholder="Brand notes or default messaging" />
+              </div>
+              <div class="btns">
+                <button class="btn primary" id="brandProfileSaveBtn" type="button">Save Brand Profile</button>
+                <button class="btn" id="brandProfileRefreshBtn" type="button">Refresh Brand Profile</button>
+              </div>
+              <div class="status-list" id="brandProfileStatus">Brand profile not loaded yet.</div>
+            </div>
           </div>
-          <div class="stat">
-            <div class="k">App Bridge</div>
-            <div class="v" id="bridgeStatus">Not initialized</div>
-          </div>
-        </div>
-        <div class="btns">
-          <button class="btn primary" id="testContextBtn" type="button">Test Context API</button>
-          <button class="btn" id="copyEmbedUrlBtn" type="button">Copy Sample Embedded URL</button>
-        </div>
-        <div class="inline">
-          <input id="shopDomainInput" type="text" placeholder="your-store.myshopify.com" />
-          <button class="btn primary" id="startOAuthBtn" type="button">Connect Store OAuth</button>
-          <button class="btn" id="refreshTokensBtn" type="button">Refresh Tokens</button>
-        </div>
-        <div class="token-list" id="tokenList">No persisted tokens loaded yet.</div>
-        <div class="inline">
-          <button class="btn primary" id="runBootstrapBtn" type="button">Run Install Bootstrap</button>
-          <button class="btn" id="refreshBootstrapBtn" type="button">Refresh Bootstrap</button>
-        </div>
-        <div class="status-list" id="bootstrapStatus">Bootstrap status not loaded yet.</div>
+        </details>
+
         <div class="quick-stage">
           <h3>Open Face Quick Path</h3>
-          <p>Connect your store, drop one CSV, add a short goal, and generate listing drafts. Extra tools stay nearby but optional.</p>
+          <p>Start with images and a short goal. Then generate a custom CSV draft, review/edit fields, and generate listing drafts.</p>
+          <div class="quick-note" style="margin-bottom:10px;">
+            The app checks uploaded images + your goal, then suggests existing store product types. You can choose an existing type or enter a new one.
+          </div>
           <div class="quick-grid">
             <div>
-              <div class="dropzone" id="quickDropzone" role="button" tabindex="0" aria-label="Drop CSV file here">
-                <strong>Drop CSV Here</strong>
-                <small>or click below to choose a file. We keep everything in this same screen.</small>
+              <div class="dropzone" id="quickImageDropzone" role="button" tabindex="0" aria-label="Drop product images here" style="margin-top:12px;">
+                <strong>Drop Product Images</strong>
+                <small>Recommended first step. JPG, PNG, WEBP, GIF. We upload to this shop session and use the folder automatically.</small>
               </div>
               <div class="inline" style="margin-top:8px;">
-                <input id="quickCsvInput" type="file" accept=".csv,text/csv" />
+                <input id="quickImageInput" type="file" accept="image/*" multiple />
               </div>
-              <div class="quick-note" id="quickFileMeta">No CSV selected yet.</div>
+              <div class="quick-note" id="quickImageMeta">No images selected yet (optional).</div>
+              <label for="quickDescriptionInput" style="display:block;font-size:0.78rem;color:var(--sub);margin:10px 0 4px;text-transform:uppercase;letter-spacing:0.04em;">Short listing goal</label>
+              <textarea id="quickDescriptionInput" class="quick-input" rows="5" placeholder="Example: modern brass well light fixture, low glare, weatherproof, easy install."></textarea>
             </div>
             <div>
-              <label for="quickDescriptionInput" style="display:block;font-size:0.78rem;color:var(--sub);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.04em;">Short listing goal (optional)</label>
-              <textarea id="quickDescriptionInput" class="quick-input" rows="5" placeholder="Example: clean and clear listing copy for modern brass wall light, warm tone, highlight easy install."></textarea>
+              <div class="quick-note" style="margin-bottom:8px;">Product type selection</div>
+              <div class="inline" style="margin-top:0;">
+                <input id="quickProductTypeInput" type="text" list="quickProductTypeList" placeholder="Search or select existing product type" />
+                <datalist id="quickProductTypeList"></datalist>
+              </div>
+              <div class="status-list" id="quickCategoryCheckStatus" style="margin-top:8px; background:#f6faf7; border-left:3px solid #9fb7a8; color:#31413a;">
+                Category check: generate a template to see a suggestion.
+              </div>
+              <div class="inline" style="margin-top:8px;">
+                <input id="quickNewProductTypeInput" type="text" placeholder="Or enter a new product type" />
+                <button class="btn" id="quickApplyProductTypeBtn" type="button">Apply Product Type</button>
+              </div>
+              <div class="quick-note" id="quickLearningStatus">When you apply a product type, this account learns that pattern for future similar products.</div>
               <div class="inline" style="margin-top:8px;">
                 <label style="font-size:0.79rem; color:#4f5965;">
                   <input id="quickTaxonomyAutoToggle" type="checkbox" checked />
@@ -558,16 +606,50 @@
               </div>
               <div class="quick-note" id="quickClassificationNotice">Final classification stays under your control before publishing.</div>
               <div class="btns" style="margin-top:8px;">
+                <button class="btn" id="quickTemplateDownloadBtn" type="button">Download CSV Template</button>
+                <button class="btn" id="quickAutoCsvBtn" type="button">Generate CSV From Images + Goal</button>
                 <button class="btn primary" id="quickGenerateBtn" type="button">Generate Listing Draft</button>
                 <button class="btn" id="quickConnectionBtn" type="button">Check Connection</button>
                 <button class="btn" id="quickDiagnosticsBtn" type="button">Export Support Bundle</button>
               </div>
               <div class="status-list" id="quickStatus">Quick path ready. Connect store, add CSV, then Generate Listing Draft.</div>
               <div class="status-list" id="pilotAuditStatus">Pilot audit idle. Import a draft to view confidence and taxonomy cues.</div>
+              <div class="status-list" id="quickCsvBuilderStatus">No custom CSV generated yet.</div>
+              <div class="btns" style="margin-top:8px;">
+                <button class="btn" id="quickCustomCsvDownloadBtn" type="button">Download Custom CSV</button>
+                <button class="btn" id="quickUseCustomCsvBtn" type="button">Use Custom CSV For Generate</button>
+                <button class="btn primary" id="quickGenerateFromReviewedBtn" type="button">Generate Listing From Reviewed Fields</button>
+              </div>
+              <div class="onboarding-list" style="max-height:220px; overflow:auto;">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Column</th>
+                      <th>Value</th>
+                    </tr>
+                  </thead>
+                  <tbody id="quickCsvFieldsBody">
+                    <tr><td colspan="2">Generate custom CSV to edit fields here.</td></tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
+          <details class="expando" style="margin-top:10px;">
+            <summary>Use Existing CSV Instead (optional)</summary>
+            <div class="expando-body">
+              <div class="dropzone" id="quickDropzone" role="button" tabindex="0" aria-label="Drop CSV file here">
+                <strong>Drop CSV Here</strong>
+                <small>Use this if you already have a one-tab CSV file.</small>
+              </div>
+              <div class="inline" style="margin-top:8px;">
+                <input id="quickCsvInput" type="file" accept=".csv,text/csv" />
+              </div>
+              <div class="quick-note" id="quickFileMeta">No CSV selected yet.</div>
+            </div>
+          </details>
           <div class="quick-guide">
-            <strong>Quick Guide:</strong> 1) Connect Store OAuth, 2) drop CSV, 3) optional short goal, 4) click <code>Generate Listing Draft</code>, 5) review and push when ready.
+            <strong>Quick Guide:</strong> 1) Drop images + add goal, 2) Generate CSV From Images + Goal, 3) review/edit fields, 4) choose product type (existing or new), 5) Generate Listing From Reviewed Fields.
           </div>
         </div>
 
@@ -803,6 +885,15 @@
     const runBootstrapBtn = document.getElementById("runBootstrapBtn");
     const refreshBootstrapBtn = document.getElementById("refreshBootstrapBtn");
     const bootstrapStatus = document.getElementById("bootstrapStatus");
+    const brandNameInput = document.getElementById("brandNameInput");
+    const brandVendorInput = document.getElementById("brandVendorInput");
+    const brandWebsiteInput = document.getElementById("brandWebsiteInput");
+    const brandPresetInput = document.getElementById("brandPresetInput");
+    const brandToneInput = document.getElementById("brandToneInput");
+    const brandNotesInput = document.getElementById("brandNotesInput");
+    const brandProfileSaveBtn = document.getElementById("brandProfileSaveBtn");
+    const brandProfileRefreshBtn = document.getElementById("brandProfileRefreshBtn");
+    const brandProfileStatus = document.getElementById("brandProfileStatus");
     const onboardingChecksBtn = document.getElementById("onboardingChecksBtn");
     const onboardingBootstrapBtn = document.getElementById("onboardingBootstrapBtn");
     const onboardingSampleBtn = document.getElementById("onboardingSampleBtn");
@@ -837,14 +928,30 @@
     const quickDropzone = document.getElementById("quickDropzone");
     const quickCsvInput = document.getElementById("quickCsvInput");
     const quickFileMeta = document.getElementById("quickFileMeta");
+    const quickImageDropzone = document.getElementById("quickImageDropzone");
+    const quickImageInput = document.getElementById("quickImageInput");
+    const quickImageMeta = document.getElementById("quickImageMeta");
     const quickDescriptionInput = document.getElementById("quickDescriptionInput");
+    const quickProductTypeInput = document.getElementById("quickProductTypeInput");
+    const quickProductTypeList = document.getElementById("quickProductTypeList");
+    const quickNewProductTypeInput = document.getElementById("quickNewProductTypeInput");
+    const quickApplyProductTypeBtn = document.getElementById("quickApplyProductTypeBtn");
+    const quickCategoryCheckStatus = document.getElementById("quickCategoryCheckStatus");
+    const quickLearningStatus = document.getElementById("quickLearningStatus");
     const quickTaxonomyAutoToggle = document.getElementById("quickTaxonomyAutoToggle");
     const quickClassificationNotice = document.getElementById("quickClassificationNotice");
     const quickGenerateBtn = document.getElementById("quickGenerateBtn");
+    const quickTemplateDownloadBtn = document.getElementById("quickTemplateDownloadBtn");
+    const quickAutoCsvBtn = document.getElementById("quickAutoCsvBtn");
     const quickConnectionBtn = document.getElementById("quickConnectionBtn");
     const quickDiagnosticsBtn = document.getElementById("quickDiagnosticsBtn");
     const quickStatus = document.getElementById("quickStatus");
     const pilotAuditStatus = document.getElementById("pilotAuditStatus");
+    const quickCsvBuilderStatus = document.getElementById("quickCsvBuilderStatus");
+    const quickCustomCsvDownloadBtn = document.getElementById("quickCustomCsvDownloadBtn");
+    const quickUseCustomCsvBtn = document.getElementById("quickUseCustomCsvBtn");
+    const quickGenerateFromReviewedBtn = document.getElementById("quickGenerateFromReviewedBtn");
+    const quickCsvFieldsBody = document.getElementById("quickCsvFieldsBody");
     const workflowCsvFile = document.getElementById("workflowCsvFile");
     const workflowImageRoot = document.getElementById("workflowImageRoot");
     const workflowLiveConfirm = document.getElementById("workflowLiveConfirm");
@@ -871,6 +978,14 @@
     let latestRollout = null;
     let latestTelemetry = null;
     let selectedCsvFile = null;
+    let selectedImageFiles = [];
+    let customCsvHeaders = [];
+    let customCsvRow = {};
+    let customCsvContent = "";
+    let availableProductTypes = [];
+    let latestSuggestedProductType = "";
+    let latestSuggestionSource = "none";
+    let latestBrandProfile = null;
     const classificationNoticeText = "Final classification stays under your control before publishing.";
 
     function getParams() {
@@ -935,6 +1050,430 @@
       quickFileMeta.textContent = selectedCsvFile
         ? `Selected: ${describeCsvFile(selectedCsvFile)} via ${sourceLabel}.`
         : "No CSV selected yet.";
+    }
+
+    function describeImageFiles(files) {
+      const list = Array.isArray(files) ? files : [];
+      if (!list.length) return "No images selected yet (optional).";
+      const totalBytes = list.reduce((sum, file) => sum + Number(file && file.size || 0), 0);
+      const mb = Math.max(0.1, Math.round((totalBytes / (1024 * 1024)) * 10) / 10);
+      const names = list.slice(0, 5).map((file) => String(file.name || "image"));
+      const extra = list.length > 5 ? ` (+${list.length - 5} more)` : "";
+      return `Selected ${list.length} image(s), ${mb} MB total: ${names.join(", ")}${extra}`;
+    }
+
+    function isLikelyImageFile(file) {
+      const type = String(file && file.type || "").toLowerCase();
+      if (type.startsWith("image/")) return true;
+      const name = String(file && file.name || "").toLowerCase();
+      return /\.(jpg|jpeg|png|gif|webp|bmp|heic|heif|tif|tiff|avif)$/.test(name);
+    }
+
+    function setSelectedImageFiles(files, sourceLabel) {
+      const list = Array.from(files || []).filter((file) => isLikelyImageFile(file));
+      selectedImageFiles = list;
+      quickImageMeta.textContent = list.length
+        ? `${describeImageFiles(list)} via ${sourceLabel}.`
+        : "No images selected yet (optional).";
+    }
+
+    function csvEscape(value) {
+      const text = String(value === undefined || value === null ? "" : value);
+      if (/[,"\r\n]/.test(text)) {
+        return `"${text.replace(/"/g, '""')}"`;
+      }
+      return text;
+    }
+
+    function buildCsvFromCustomState() {
+      if (!customCsvHeaders.length) return "";
+      const row = customCsvHeaders.map((header) => csvEscape(customCsvRow[header] || "")).join(",");
+      return `${customCsvHeaders.map((header) => csvEscape(header)).join(",")}\n${row}\n`;
+    }
+
+    function downloadTextFile(filename, content, mimeType = "text/plain;charset=utf-8") {
+      const blob = new Blob([content], { type: mimeType });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    function renderCustomCsvFields() {
+      quickCsvFieldsBody.innerHTML = "";
+      if (!customCsvHeaders.length) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = '<td colspan="2">Generate custom CSV to edit fields here.</td>';
+        quickCsvFieldsBody.appendChild(tr);
+        return;
+      }
+
+      customCsvHeaders.forEach((header, idx) => {
+        const tr = document.createElement("tr");
+        const key = sanitize(header);
+        const value = sanitize(customCsvRow[header] || "");
+        tr.innerHTML = `
+          <td>${key}</td>
+          <td><input data-csv-idx="${idx}" type="text" value="${value}" style="width:100%;" /></td>
+        `;
+        quickCsvFieldsBody.appendChild(tr);
+      });
+
+      quickCsvFieldsBody.querySelectorAll("input[data-csv-idx]").forEach((input) => {
+        input.addEventListener("input", () => {
+          const idx = Number(input.getAttribute("data-csv-idx") || "-1");
+          const key = idx >= 0 ? customCsvHeaders[idx] : "";
+          if (!key) return;
+          customCsvRow[key] = input.value;
+          customCsvContent = buildCsvFromCustomState();
+          quickCsvBuilderStatus.textContent = `Custom CSV updated (${customCsvHeaders.length} columns).`;
+        });
+      });
+    }
+
+    function renderProductTypeOptions() {
+      quickProductTypeList.innerHTML = "";
+      availableProductTypes.forEach((productType) => {
+        const option = document.createElement("option");
+        option.value = productType;
+        quickProductTypeList.appendChild(option);
+      });
+    }
+
+    function setCategoryCheckStatus(chosenProductType) {
+      const chosen = String(chosenProductType || "").trim();
+      const suggested = String(latestSuggestedProductType || "").trim();
+      if (!suggested) {
+        quickCategoryCheckStatus.textContent = "Category check: generate a template to see a suggestion.";
+        quickCategoryCheckStatus.style.background = "#f6faf7";
+        quickCategoryCheckStatus.style.borderLeftColor = "#9fb7a8";
+        return;
+      }
+
+      if (!chosen) {
+        quickCategoryCheckStatus.textContent = `Category check: suggested '${suggested}' (${latestSuggestionSource}). Please confirm before generating.`;
+        quickCategoryCheckStatus.style.background = "#f7f5ea";
+        quickCategoryCheckStatus.style.borderLeftColor = "#c9b56a";
+        return;
+      }
+
+      if (chosen.toLowerCase() === suggested.toLowerCase()) {
+        quickCategoryCheckStatus.textContent = `Category check: matches suggested category '${suggested}' (${latestSuggestionSource}).`;
+        quickCategoryCheckStatus.style.background = "#edf7ef";
+        quickCategoryCheckStatus.style.borderLeftColor = "#5ba36d";
+        return;
+      }
+
+      quickCategoryCheckStatus.textContent = `Category check: selected '${chosen}' differs from suggested '${suggested}' (${latestSuggestionSource}). Please verify intended category.`;
+      quickCategoryCheckStatus.style.background = "#f7f3ea";
+      quickCategoryCheckStatus.style.borderLeftColor = "#c79a52";
+    }
+
+    async function sendProductTypeFeedback(productType) {
+      const chosen = String(productType || "").trim();
+      if (!chosen) return;
+      const imageNames = selectedImageFiles.map((file) => String(file.name || "")).filter(Boolean);
+      const shortDescription = String(quickDescriptionInput.value || "").trim();
+      if (!shortDescription && !imageNames.length) return;
+      try {
+        const res = await apiPost("/api/workflow/product-type/feedback", {
+          productType: chosen,
+          shortDescription,
+          imageNames,
+        });
+        const data = await res.json();
+        if (res.ok && data.ok) {
+          quickLearningStatus.textContent = `Learning updated for this account (${data.learning && data.learning.entryCount || 0} patterns tracked).`;
+        }
+      } catch {
+        // Keep user flow uninterrupted if learning feedback fails.
+      }
+    }
+
+    async function loadProductTypes() {
+      try {
+        const res = await apiGet("/api/store/product-types");
+        const data = await res.json();
+        availableProductTypes = Array.isArray(data.productTypes)
+          ? data.productTypes.map((x) => String(x || "").trim()).filter(Boolean)
+          : [];
+        renderProductTypeOptions();
+      } catch {
+        availableProductTypes = [];
+        renderProductTypeOptions();
+      }
+    }
+
+    function summarizeBrandProfile(profile) {
+      const p = profile || {};
+      return [
+        `brand: ${p.brandName || "n/a"}`,
+        `vendor: ${p.brandVendor || "n/a"}`,
+        `website: ${p.websiteUrl || "n/a"}`,
+        `preset: ${p.preset || "n/a"}`,
+        `tone: ${p.tone || "n/a"}`,
+        `updated: ${p.updatedAt || "n/a"}`,
+      ].join("\n");
+    }
+
+    async function loadBrandProfile() {
+      try {
+        const res = await apiGet("/api/brand-profile/latest");
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+          throw new Error(data.error || "Could not load brand profile.");
+        }
+        latestBrandProfile = data.brandProfile || null;
+        const p = latestBrandProfile || {};
+        brandNameInput.value = p.brandName || "";
+        brandVendorInput.value = p.brandVendor || "";
+        brandWebsiteInput.value = p.websiteUrl || "";
+        brandPresetInput.value = p.preset || "";
+        brandToneInput.value = p.tone || "";
+        brandNotesInput.value = p.notes || "";
+        brandProfileStatus.textContent = summarizeBrandProfile(latestBrandProfile);
+      } catch (error) {
+        brandProfileStatus.textContent = `Could not load brand profile: ${String(error && error.message ? error.message : error)}`;
+      }
+    }
+
+    async function saveBrandProfile() {
+      brandProfileSaveBtn.disabled = true;
+      try {
+        const payload = {
+          brandName: String(brandNameInput.value || "").trim(),
+          brandVendor: String(brandVendorInput.value || "").trim(),
+          websiteUrl: String(brandWebsiteInput.value || "").trim(),
+          preset: String(brandPresetInput.value || "").trim(),
+          tone: String(brandToneInput.value || "").trim(),
+          notes: String(brandNotesInput.value || "").trim(),
+        };
+        const res = await apiPost("/api/brand-profile/save", payload);
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+          throw new Error(data.error || "Could not save brand profile.");
+        }
+        latestBrandProfile = data.brandProfile || null;
+        brandProfileStatus.textContent = summarizeBrandProfile(latestBrandProfile);
+      } catch (error) {
+        brandProfileStatus.textContent = `Could not save brand profile: ${String(error && error.message ? error.message : error)}`;
+      } finally {
+        brandProfileSaveBtn.disabled = false;
+      }
+    }
+
+    async function autofillMissingReviewedFields() {
+      if (!customCsvHeaders.length) return false;
+      try {
+        const imageRoot = String(customCsvRow.image_root || "").trim() || "assets/products";
+        const imageNames = selectedImageFiles.map((file) => String(file.name || "")).filter(Boolean);
+        const res = await apiPost("/api/workflow/template/autofill", {
+          headers: customCsvHeaders,
+          row: customCsvRow,
+          shortDescription: String(quickDescriptionInput.value || "").trim(),
+          imageNames,
+          imageRoot,
+          suggestedProductType: String(customCsvRow.product_type || quickProductTypeInput.value || latestSuggestedProductType || "").trim(),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok || !data.template) {
+          throw new Error(data.error || "Autofill failed.");
+        }
+        customCsvRow = data.template.row && typeof data.template.row === "object" ? { ...data.template.row } : customCsvRow;
+        customCsvContent = String(data.template.csvContent || buildCsvFromCustomState());
+        renderCustomCsvFields();
+        quickCsvBuilderStatus.textContent = "Missing fields auto-filled using available listing, image, template, and brand context.";
+        return true;
+      } catch (error) {
+        quickCsvBuilderStatus.textContent = `Autofill failed: ${String(error && error.message ? error.message : error)}`;
+        return false;
+      }
+    }
+
+    function applySelectedProductTypeToCustomCsv() {
+      const preferred = String(quickNewProductTypeInput.value || "").trim() || String(quickProductTypeInput.value || "").trim();
+      if (!preferred) {
+        quickCsvBuilderStatus.textContent = "Enter or select a product type first.";
+        return;
+      }
+
+      if (!customCsvHeaders.length) {
+        customCsvHeaders = ["product_type", "title", "handle", "description", "metafields_json"];
+      }
+      customCsvRow.product_type = preferred;
+      if (!availableProductTypes.includes(preferred)) {
+        if (!availableProductTypes.includes(preferred)) {
+          availableProductTypes.push(preferred);
+          availableProductTypes.sort((a, b) => a.localeCompare(b));
+          renderProductTypeOptions();
+        }
+        quickCsvBuilderStatus.textContent = `New product type '${preferred}' applied with starter metafield seed in template.`;
+      } else {
+        quickCsvBuilderStatus.textContent = `Existing product type '${preferred}' applied.`;
+      }
+
+      quickProductTypeInput.value = preferred;
+      customCsvContent = buildCsvFromCustomState();
+      renderCustomCsvFields();
+      setCategoryCheckStatus(preferred);
+      sendProductTypeFeedback(preferred);
+    }
+
+    async function generateCustomCsvFromImagesAndGoal() {
+      quickAutoCsvBtn.disabled = true;
+      try {
+        const shortDescription = String(quickDescriptionInput.value || "").trim();
+        if (!shortDescription && !selectedImageFiles.length) {
+          quickCsvBuilderStatus.textContent = "Add a short description or images first.";
+          return;
+        }
+
+        let imageRoot = "";
+        const imageNames = selectedImageFiles.map((file) => String(file.name || "")).filter(Boolean);
+        if (selectedImageFiles.length) {
+          imageRoot = await uploadSelectedImagesIfAny();
+        }
+
+        const res = await apiPost("/api/workflow/template/from-images", {
+          shortDescription,
+          imageNames,
+          imageRoot,
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok || !data.template) {
+          throw new Error(data.error || "Could not generate custom CSV.");
+        }
+
+        customCsvHeaders = Array.isArray(data.template.headers) ? data.template.headers : [];
+        customCsvRow = data.template.row && typeof data.template.row === "object" ? { ...data.template.row } : {};
+        customCsvContent = String(data.template.csvContent || "");
+        latestSuggestedProductType = String(data.template.suggestedProductType || "");
+        latestSuggestionSource = String(data.template.suggestionSource || "store-match");
+        const incomingTypes = Array.isArray(data.template.productTypes) ? data.template.productTypes : [];
+        if (incomingTypes.length) {
+          availableProductTypes = incomingTypes.map((x) => String(x || "").trim()).filter(Boolean);
+          renderProductTypeOptions();
+        }
+        if (data.template.suggestedProductType) {
+          quickProductTypeInput.value = String(data.template.suggestedProductType);
+        }
+        renderCustomCsvFields();
+        quickCsvBuilderStatus.textContent = `Custom CSV generated. Suggested product type: ${data.template.suggestedProductType || "n/a"}.`;
+        setCategoryCheckStatus(quickProductTypeInput.value || customCsvRow.product_type || "");
+      } catch (error) {
+        quickCsvBuilderStatus.textContent = `Custom CSV generation failed: ${String(error && error.message ? error.message : error)}`;
+      } finally {
+        quickAutoCsvBtn.disabled = false;
+      }
+    }
+
+    function downloadCustomCsv() {
+      const content = customCsvContent || buildCsvFromCustomState();
+      if (!content) {
+        quickCsvBuilderStatus.textContent = "No custom CSV available. Generate one first.";
+        return;
+      }
+      downloadTextFile(`custom-intake-${new Date().toISOString().slice(0, 10)}.csv`, content, "text/csv;charset=utf-8");
+      quickCsvBuilderStatus.textContent = "Custom CSV downloaded.";
+    }
+
+    function useCustomCsvForImport() {
+      const content = customCsvContent || buildCsvFromCustomState();
+      if (!content) {
+        quickCsvBuilderStatus.textContent = "No custom CSV available. Generate one first.";
+        return;
+      }
+      const file = new File([content], `custom-intake-${Date.now()}.csv`, { type: "text/csv" });
+      setSelectedCsvFile(file, "custom csv builder");
+      setCategoryCheckStatus(String(customCsvRow.product_type || quickProductTypeInput.value || ""));
+      quickStatus.textContent = "Custom CSV loaded. Click Generate Listing Draft to continue.";
+    }
+
+    async function generateListingFromReviewedFields() {
+      quickGenerateFromReviewedBtn.disabled = true;
+      try {
+        if (!customCsvHeaders.length || !Object.keys(customCsvRow || {}).length) {
+          await generateCustomCsvFromImagesAndGoal();
+        }
+
+        if (!customCsvHeaders.length || !Object.keys(customCsvRow || {}).length) {
+          quickStatus.textContent = "No reviewed data available. Add images/goal and generate custom CSV first.";
+          return;
+        }
+
+        await autofillMissingReviewedFields();
+        useCustomCsvForImport();
+        if (!getSelectedCsvFile()) {
+          quickStatus.textContent = "No reviewed CSV available to generate from.";
+          return;
+        }
+
+        await sendProductTypeFeedback(String(customCsvRow.product_type || quickProductTypeInput.value || ""));
+        await runWorkflowImport("quick-reviewed");
+      } finally {
+        quickGenerateFromReviewedBtn.disabled = false;
+      }
+    }
+
+    async function downloadBaseTemplateCsv() {
+      quickTemplateDownloadBtn.disabled = true;
+      try {
+        const res = await apiGet("/api/workflow/template/download");
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text || "Template download failed.");
+        }
+        const content = await res.text();
+        downloadTextFile(`products-intake-template-${new Date().toISOString().slice(0, 10)}.csv`, content, "text/csv;charset=utf-8");
+        quickStatus.textContent = "CSV template downloaded.";
+      } catch (error) {
+        quickStatus.textContent = `Could not download template: ${String(error && error.message ? error.message : error)}`;
+      } finally {
+        quickTemplateDownloadBtn.disabled = false;
+      }
+    }
+
+    function readFileAsBase64(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const raw = String(reader.result || "");
+          const marker = ",";
+          const idx = raw.indexOf(marker);
+          resolve(idx >= 0 ? raw.slice(idx + 1) : raw);
+        };
+        reader.onerror = () => reject(new Error(`Could not read file: ${String(file && file.name || "unknown")}`));
+        reader.readAsDataURL(file);
+      });
+    }
+
+    async function uploadSelectedImagesIfAny() {
+      if (!selectedImageFiles.length) {
+        return "";
+      }
+
+      const images = [];
+      for (const file of selectedImageFiles) {
+        const contentBase64 = await readFileAsBase64(file);
+        images.push({
+          name: String(file.name || "image"),
+          contentBase64,
+        });
+      }
+
+      const response = await apiPost("/api/workflow/upload-images", {
+        images,
+        folderName: `quick-${Date.now()}`,
+      });
+      const data = await response.json();
+      if (!response.ok || !data.ok) {
+        throw new Error(data.error || "Image upload failed.");
+      }
+      return String(data.imageRoot || "").trim();
     }
 
     function getSelectedCsvFile() {
@@ -1721,9 +2260,11 @@
         const csvContent = await activeCsv.text();
         const shortDescription = String(quickDescriptionInput.value || "").trim().slice(0, 240);
         const autoApplyTaxonomyFromSimilar = Boolean(quickTaxonomyAutoToggle.checked);
+        const uploadedImageRoot = await uploadSelectedImagesIfAny();
+        const imageRoot = uploadedImageRoot || String(workflowImageRoot.value || "assets/products").trim() || "assets/products";
         const payload = {
           csvContent,
-          imageRoot: workflowImageRoot.value || "assets/products",
+          imageRoot,
           shortDescription,
           autoApplyTaxonomyFromSimilar,
         };
@@ -1752,7 +2293,7 @@
         }
 
         quickStatus.textContent = origin === "quick"
-          ? `Draft generated. Taxonomy auto-similar is ${autoApplyTaxonomyFromSimilar ? "on" : "off"}. Review rows below, then push dry before live.`
+          ? `Draft generated. Using image root: ${imageRoot}. Taxonomy auto-similar is ${autoApplyTaxonomyFromSimilar ? "on" : "off"}. Review rows below, then push dry before live.`
           : "Import completed. Quick path is ready for your next file.";
 
         await loadWorkflowLatest();
@@ -1907,12 +2448,60 @@
       }
     });
 
+    quickImageDropzone.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      quickImageDropzone.classList.add("dragging");
+    });
+
+    quickImageDropzone.addEventListener("dragleave", () => {
+      quickImageDropzone.classList.remove("dragging");
+    });
+
+    quickImageDropzone.addEventListener("drop", (event) => {
+      event.preventDefault();
+      quickImageDropzone.classList.remove("dragging");
+      const files = event.dataTransfer && event.dataTransfer.files ? event.dataTransfer.files : [];
+      setSelectedImageFiles(files, "drop zone");
+      if (selectedImageFiles.length) {
+        quickStatus.textContent = "Images loaded. Generate draft to upload and use them automatically.";
+      } else {
+        quickStatus.textContent = "No valid image files found in drop selection.";
+      }
+    });
+
+    quickImageDropzone.addEventListener("click", () => {
+      quickImageInput.click();
+    });
+
+    quickImageDropzone.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        quickImageInput.click();
+      }
+    });
+
     quickCsvInput.addEventListener("change", () => {
       const file = quickCsvInput.files && quickCsvInput.files[0] ? quickCsvInput.files[0] : null;
       setSelectedCsvFile(file, "quick picker");
       if (file) {
         quickStatus.textContent = "CSV selected. Click Generate Listing Draft when ready.";
       }
+    });
+
+    quickImageInput.addEventListener("change", () => {
+      setSelectedImageFiles(quickImageInput.files ? Array.from(quickImageInput.files) : [], "image picker");
+      if (selectedImageFiles.length) {
+        quickStatus.textContent = "Images selected. Generate draft to upload and use them automatically.";
+      }
+    });
+
+    quickProductTypeInput.addEventListener("input", () => {
+      setCategoryCheckStatus(quickProductTypeInput.value);
+    });
+
+    quickNewProductTypeInput.addEventListener("input", () => {
+      const preferred = String(quickNewProductTypeInput.value || "").trim() || String(quickProductTypeInput.value || "").trim();
+      setCategoryCheckStatus(preferred);
     });
 
     workflowCsvFile.addEventListener("change", () => {
@@ -1923,6 +2512,14 @@
     });
 
     quickGenerateBtn.addEventListener("click", () => runWorkflowImport("quick"));
+    quickTemplateDownloadBtn.addEventListener("click", downloadBaseTemplateCsv);
+    quickAutoCsvBtn.addEventListener("click", generateCustomCsvFromImagesAndGoal);
+    quickCustomCsvDownloadBtn.addEventListener("click", downloadCustomCsv);
+    quickUseCustomCsvBtn.addEventListener("click", useCustomCsvForImport);
+    quickGenerateFromReviewedBtn.addEventListener("click", generateListingFromReviewedFields);
+    brandProfileSaveBtn.addEventListener("click", saveBrandProfile);
+    brandProfileRefreshBtn.addEventListener("click", loadBrandProfile);
+    quickApplyProductTypeBtn.addEventListener("click", applySelectedProductTypeToCustomCsv);
     quickClassificationNotice.textContent = classificationNoticeText;
     quickConnectionBtn.addEventListener("click", checkQuickConnection);
     quickDiagnosticsBtn.addEventListener("click", async () => {
@@ -1968,6 +2565,8 @@
     attentionRefreshBtn.addEventListener("click", loadAttentionLatest);
 
     loadAuthConfig();
+    loadProductTypes();
+    loadBrandProfile();
     loadTokenSummaries();
     loadBootstrapState();
     loadOnboardingLatest();

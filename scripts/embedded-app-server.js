@@ -21,6 +21,8 @@ const DEFAULT_SCOPES = String(process.env.SHOPIFY_SCOPES || "read_products,write
 const REDIRECT_URI = String(process.env.EMBEDDED_SHOPIFY_REDIRECT_URI || `http://${HOST}:${PORT}/auth/callback`).trim();
 const EMBEDDED_ALLOW_LIVE_PUSH = String(process.env.EMBEDDED_ALLOW_LIVE_PUSH || "false").toLowerCase() === "true";
 const PILOT_ROLLOUT_ENFORCE = String(process.env.PILOT_ROLLOUT_ENFORCE || "false").toLowerCase() === "true";
+const STORE_DB_PATH = path.resolve(process.cwd(), "data/shopify-store-db.json");
+const INTAKE_TEMPLATE_PATH = path.resolve(process.cwd(), "data/intake-single/products-intake.csv");
 const LEGACY_BOOTSTRAP_STATE_PATH = path.resolve(process.cwd(), "data/ui-session/embedded-bootstrap-state.json");
 const LEGACY_JOB_HISTORY_PATH = path.resolve(process.cwd(), "data/ui-session/embedded-jobs-history.jsonl");
 const PILOT_ALLOWLIST_PATH = path.resolve(process.cwd(), "data/pilot/pilot-allowlist.json");
@@ -52,6 +54,8 @@ function getShopPaths(shopKey) {
     diagnosticsStatePath: path.resolve(process.cwd(), `${sessionDirRel}/embedded-diagnostics-state.json`),
     pilotRolloutStatePath: path.resolve(process.cwd(), `${sessionDirRel}/embedded-pilot-rollout-state.json`),
     pilotTelemetryPath: path.resolve(process.cwd(), `${sessionDirRel}/pilot-telemetry.jsonl`),
+    productTypeLearningPath: path.resolve(process.cwd(), `${sessionDirRel}/product-type-learning.json`),
+    brandProfilePath: path.resolve(process.cwd(), `${sessionDirRel}/embedded-brand-profile.json`),
   };
 }
 
@@ -62,6 +66,8 @@ const ATTENTION_DEFAULT_LIMIT = 12;
 const ATTENTION_MAX_LIMIT = 40;
 const CONFIDENCE_CRITICAL = 70;
 const CONFIDENCE_LOW = 85;
+const MAX_UPLOAD_IMAGES = 80;
+const MAX_UPLOAD_IMAGE_BYTES = 12 * 1024 * 1024;
 
 function toPosixPath(value) {
   return String(value || "").replace(/\\/g, "/");
@@ -646,6 +652,543 @@ function parseConfidence(value) {
   const num = Number(raw);
   if (Number.isFinite(num)) return num;
   return null;
+}
+
+function csvEscape(value) {
+  const text = String(value === undefined || value === null ? "" : value);
+  if (/[,"\r\n]/.test(text)) {
+    return `"${text.replace(/"/g, '""')}"`;
+  }
+  return text;
+}
+
+function slugify(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+}
+
+function readIntakeTemplateHeaders() {
+  if (!fs.existsSync(INTAKE_TEMPLATE_PATH)) {
+    throw new Error("Intake template not found. Run bootstrap first to generate data/intake-single/products-intake.csv.");
+  }
+
+  const content = fs.readFileSync(INTAKE_TEMPLATE_PATH, "utf8").replace(/^\uFEFF/, "");
+  const rows = parse(content, {
+    columns: false,
+    skip_empty_lines: false,
+    trim: false,
+  });
+  const headerRow = Array.isArray(rows) && Array.isArray(rows[0]) ? rows[0] : [];
+  const headers = headerRow.map((x) => String(x || "").trim()).filter(Boolean);
+  if (!headers.length) {
+    throw new Error("Intake template has no header row.");
+  }
+  return headers;
+}
+
+function readStoreProductTypes() {
+  if (!fs.existsSync(STORE_DB_PATH)) return [];
+  try {
+    const value = JSON.parse(fs.readFileSync(STORE_DB_PATH, "utf8"));
+    return Array.isArray(value.productTypes)
+      ? value.productTypes.map((x) => String(x || "").trim()).filter(Boolean)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function readMetafieldDefinitions() {
+  const schemaPath = path.resolve(process.cwd(), "data/shopify-metafields.product.json");
+  if (!fs.existsSync(schemaPath)) return [];
+  try {
+    const value = JSON.parse(fs.readFileSync(schemaPath, "utf8"));
+    return Array.isArray(value.productDefinitions) ? value.productDefinitions : [];
+  } catch {
+    return [];
+  }
+}
+
+function defaultValueForMetafieldType(typeName) {
+  const type = String(typeName || "").toLowerCase();
+  if (type.includes("boolean")) return false;
+  if (type.includes("number") || type.includes("dimension") || type.includes("rating")) return 0;
+  if (type.includes("json") || type.includes("object")) return {};
+  if (type.startsWith("list.")) return [];
+  return "";
+}
+
+function createEmptyBrandProfile() {
+  return {
+    updatedAt: "",
+    brandName: "",
+    brandVendor: "",
+    websiteUrl: "",
+    preset: "",
+    tone: "",
+    notes: "",
+  };
+}
+
+function readBrandProfile(filePath) {
+  if (!fs.existsSync(filePath)) {
+    return createEmptyBrandProfile();
+  }
+  try {
+    const value = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    return {
+      updatedAt: String(value.updatedAt || ""),
+      brandName: String(value.brandName || "").trim(),
+      brandVendor: String(value.brandVendor || "").trim(),
+      websiteUrl: String(value.websiteUrl || "").trim(),
+      preset: String(value.preset || "").trim(),
+      tone: String(value.tone || "").trim(),
+      notes: String(value.notes || "").trim(),
+    };
+  } catch {
+    return createEmptyBrandProfile();
+  }
+}
+
+function writeBrandProfile(filePath, next) {
+  ensureDirs();
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+}
+
+function readDefaultBrandProfileFromCsv() {
+  const filePath = path.resolve(process.cwd(), "config/always-use-brand.csv");
+  if (!fs.existsSync(filePath)) {
+    return createEmptyBrandProfile();
+  }
+  try {
+    const content = fs.readFileSync(filePath, "utf8").replace(/^\uFEFF/, "");
+    const rows = parse(content, {
+      columns: true,
+      skip_empty_lines: true,
+      trim: true,
+    });
+    const row = Array.isArray(rows) ? rows.find((x) => String(x.enabled || "").toLowerCase() === "yes") || rows[0] : null;
+    if (!row) return createEmptyBrandProfile();
+    return {
+      updatedAt: "",
+      brandName: String(row.brand_name || "").trim(),
+      brandVendor: String(row.brand_vendor || "").trim(),
+      websiteUrl: String(row.website_url || row.brand_website || "").trim(),
+      preset: String(row.profile_name || "").trim(),
+      tone: "",
+      notes: String(row.default_description || "").trim(),
+    };
+  } catch {
+    return createEmptyBrandProfile();
+  }
+}
+
+function readTemplateDefaults(shortDescription, imageNames) {
+  const filePath = path.resolve(process.cwd(), "config/always-use-templates.csv");
+  if (!fs.existsSync(filePath)) return null;
+  try {
+    const content = fs.readFileSync(filePath, "utf8").replace(/^\uFEFF/, "");
+    const rows = parse(content, {
+      columns: true,
+      skip_empty_lines: true,
+      trim: true,
+    });
+    const haystack = `${String(shortDescription || "").toLowerCase()} ${Array.isArray(imageNames) ? imageNames.join(" ").toLowerCase() : ""}`;
+    for (const row of Array.isArray(rows) ? rows : []) {
+      const tokens = String(row.match_any || "")
+        .split(/[|,]/)
+        .map((x) => String(x || "").trim().toLowerCase())
+        .filter(Boolean);
+      if (!tokens.length) continue;
+      if (tokens.some((token) => haystack.includes(token))) {
+        return {
+          templateKey: String(row.template_key || "").trim(),
+          defaultDescription: String(row.default_description || "").trim(),
+          defaultProductType: String(row.default_product_type || "").trim(),
+          defaultPrice: String(row.default_price || "").trim(),
+          defaultTags: String(row.default_tags || "").trim(),
+        };
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function firstNonEmpty(values) {
+  for (const value of values) {
+    const v = String(value || "").trim();
+    if (v) return v;
+  }
+  return "";
+}
+
+function applyAutofillToRow(row, options = {}) {
+  const next = { ...(row || {}) };
+  const shortDescription = String(options.shortDescription || "").trim();
+  const imageNames = Array.isArray(options.imageNames) ? options.imageNames : [];
+  const imageRoot = String(options.imageRoot || "assets/products").trim() || "assets/products";
+  const suggestedProductType = String(options.suggestedProductType || "").trim();
+  const templateDefaults = options.templateDefaults || null;
+  const brandProfile = options.brandProfile || createEmptyBrandProfile();
+
+  const title = firstNonEmpty([
+    next.title,
+    shortDescription,
+    imageNames[0] ? String(imageNames[0]).replace(/\.[a-z0-9]+$/i, "") : "",
+    "New Product",
+  ]).slice(0, 120);
+
+  const description = firstNonEmpty([
+    next.description,
+    next.body_html,
+    templateDefaults && templateDefaults.defaultDescription,
+    shortDescription,
+    brandProfile.notes,
+  ]);
+
+  if (Object.prototype.hasOwnProperty.call(next, "title") && !String(next.title || "").trim()) {
+    next.title = title;
+  }
+  if (Object.prototype.hasOwnProperty.call(next, "handle") && !String(next.handle || "").trim()) {
+    next.handle = slugify(title);
+  }
+  if (Object.prototype.hasOwnProperty.call(next, "description") && !String(next.description || "").trim()) {
+    next.description = description;
+  }
+  if (Object.prototype.hasOwnProperty.call(next, "body_html") && !String(next.body_html || "").trim()) {
+    next.body_html = description;
+  }
+  if (Object.prototype.hasOwnProperty.call(next, "product_type") && !String(next.product_type || "").trim()) {
+    next.product_type = firstNonEmpty([
+      suggestedProductType,
+      templateDefaults && templateDefaults.defaultProductType,
+    ]);
+  }
+  if (Object.prototype.hasOwnProperty.call(next, "vendor") && !String(next.vendor || "").trim()) {
+    next.vendor = firstNonEmpty([brandProfile.brandVendor, brandProfile.brandName]);
+  }
+  if (Object.prototype.hasOwnProperty.call(next, "brand") && !String(next.brand || "").trim()) {
+    next.brand = brandProfile.brandName;
+  }
+  if (Object.prototype.hasOwnProperty.call(next, "price") && !String(next.price || "").trim()) {
+    next.price = firstNonEmpty([templateDefaults && templateDefaults.defaultPrice]);
+  }
+  if (Object.prototype.hasOwnProperty.call(next, "tags") && !String(next.tags || "").trim()) {
+    next.tags = firstNonEmpty([templateDefaults && templateDefaults.defaultTags]);
+  }
+  if (Object.prototype.hasOwnProperty.call(next, "website") && !String(next.website || "").trim()) {
+    next.website = brandProfile.websiteUrl;
+  }
+  if (Object.prototype.hasOwnProperty.call(next, "brand_website") && !String(next.brand_website || "").trim()) {
+    next.brand_website = brandProfile.websiteUrl;
+  }
+  if (Object.prototype.hasOwnProperty.call(next, "metafields_json") && !String(next.metafields_json || "").trim()) {
+    next.metafields_json = JSON.stringify(buildMetafieldSeed(8));
+  }
+
+  const imageHeaders = Object.keys(next).filter((header) => /^image(_\d+)?$/i.test(header));
+  imageHeaders.forEach((header, idx) => {
+    if (!String(next[header] || "").trim() && imageNames[idx]) {
+      next[header] = toPosixPath(path.join(imageRoot, imageNames[idx]));
+    }
+  });
+
+  return next;
+}
+
+function buildMetafieldSeed(limit = 8) {
+  const definitions = readMetafieldDefinitions()
+    .filter((def) => {
+      const namespace = String(def.namespace || "");
+      return namespace
+        && !namespace.startsWith("shopify--")
+        && namespace !== "reviews";
+    })
+    .slice(0, Math.max(1, limit));
+
+  const seed = {};
+  for (const def of definitions) {
+    const namespace = String(def.namespace || "").trim();
+    const key = String(def.key || "").trim();
+    if (!namespace || !key) continue;
+    if (!seed[namespace]) seed[namespace] = {};
+    seed[namespace][key] = defaultValueForMetafieldType(def.type && def.type.name);
+  }
+
+  return seed;
+}
+
+function tokenizeForSuggestion(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .split(/\s+/)
+    .map((x) => x.trim())
+    .filter((x) => x.length >= 3);
+}
+
+function createEmptyProductTypeLearning() {
+  return {
+    updatedAt: "",
+    entries: [],
+  };
+}
+
+function readProductTypeLearning(filePath) {
+  if (!fs.existsSync(filePath)) {
+    return createEmptyProductTypeLearning();
+  }
+  try {
+    const value = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    return {
+      updatedAt: String(value.updatedAt || ""),
+      entries: Array.isArray(value.entries)
+        ? value.entries.map((entry) => ({
+          signature: String(entry.signature || ""),
+          tokens: Array.isArray(entry.tokens)
+            ? entry.tokens.map((x) => String(x || "").trim()).filter(Boolean)
+            : [],
+          productType: String(entry.productType || "").trim(),
+          count: Math.max(1, Number(entry.count || 1)),
+          confirmedAt: String(entry.confirmedAt || ""),
+        })).filter((entry) => entry.signature && entry.productType)
+        : [],
+    };
+  } catch {
+    return createEmptyProductTypeLearning();
+  }
+}
+
+function writeProductTypeLearning(filePath, next) {
+  ensureDirs();
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+}
+
+function buildSuggestionSignature(shortDescription, imageNames) {
+  const joined = `${String(shortDescription || "")} ${Array.isArray(imageNames) ? imageNames.join(" ") : ""}`;
+  const tokens = tokenizeForSuggestion(joined).slice(0, 20);
+  return {
+    tokens,
+    signature: tokens.slice().sort().join("|"),
+  };
+}
+
+function suggestProductType(shopContext, shortDescription, imageNames) {
+  const productTypes = readStoreProductTypes();
+  if (!productTypes.length) {
+    return {
+      productType: "",
+      source: "none",
+    };
+  }
+
+  const signatureInfo = buildSuggestionSignature(shortDescription, imageNames);
+  const learning = shopContext ? readProductTypeLearning(shopContext.paths.productTypeLearningPath) : createEmptyProductTypeLearning();
+  const exactLearned = learning.entries.find((entry) => entry.signature === signatureInfo.signature);
+  if (exactLearned) {
+    return {
+      productType: exactLearned.productType,
+      source: "learned-exact",
+    };
+  }
+
+  const tokens = new Set(signatureInfo.tokens);
+  if (!tokens.size) {
+    return {
+      productType: productTypes[0],
+      source: "fallback-first",
+    };
+  }
+
+  let learnedBest = "";
+  let learnedScore = -1;
+  for (const entry of learning.entries) {
+    const entryTokens = Array.isArray(entry.tokens) ? entry.tokens : [];
+    let score = 0;
+    for (const token of entryTokens) {
+      if (tokens.has(token)) score += 3;
+      else if ([...tokens].some((t) => t.includes(token) || token.includes(t))) score += 1;
+    }
+    score += Math.min(4, Number(entry.count || 1));
+    if (score > learnedScore) {
+      learnedScore = score;
+      learnedBest = entry.productType;
+    }
+  }
+
+  if (learnedBest && learnedScore >= 6) {
+    return {
+      productType: learnedBest,
+      source: "learned-similar",
+    };
+  }
+
+  let best = productTypes[0];
+  let bestScore = -1;
+  for (const type of productTypes) {
+    const typeTokens = tokenizeForSuggestion(type);
+    let score = 0;
+    for (const token of typeTokens) {
+      if (tokens.has(token)) score += 3;
+      else if ([...tokens].some((t) => t.includes(token) || token.includes(t))) score += 1;
+    }
+    if (score > bestScore) {
+      bestScore = score;
+      best = type;
+    }
+  }
+  return {
+    productType: best,
+    source: "store-match",
+  };
+}
+
+function recordProductTypeFeedback(shopContext, shortDescription, imageNames, productType) {
+  const chosen = String(productType || "").trim();
+  if (!chosen) {
+    throw new Error("productType is required.");
+  }
+  const signatureInfo = buildSuggestionSignature(shortDescription, imageNames);
+  if (!signatureInfo.signature) {
+    throw new Error("At least one descriptive token is required to learn product type mapping.");
+  }
+
+  const current = readProductTypeLearning(shopContext.paths.productTypeLearningPath);
+  const now = new Date().toISOString();
+  const entries = Array.isArray(current.entries) ? current.entries.slice() : [];
+  const existingIdx = entries.findIndex((entry) => entry.signature === signatureInfo.signature);
+
+  if (existingIdx >= 0) {
+    entries[existingIdx] = {
+      ...entries[existingIdx],
+      tokens: signatureInfo.tokens,
+      productType: chosen,
+      count: Number(entries[existingIdx].count || 1) + 1,
+      confirmedAt: now,
+    };
+  } else {
+    entries.push({
+      signature: signatureInfo.signature,
+      tokens: signatureInfo.tokens,
+      productType: chosen,
+      count: 1,
+      confirmedAt: now,
+    });
+  }
+
+  const next = {
+    updatedAt: now,
+    entries: entries.slice(-200),
+  };
+  writeProductTypeLearning(shopContext.paths.productTypeLearningPath, next);
+  return {
+    updatedAt: next.updatedAt,
+    entryCount: next.entries.length,
+  };
+}
+
+function composeDraftCsvFromImages(headers, options = {}) {
+  const imageNames = Array.isArray(options.imageNames) ? options.imageNames : [];
+  const imageRoot = String(options.imageRoot || "assets/products").trim() || "assets/products";
+  const shortDescription = String(options.shortDescription || "").trim();
+  const suggestedProductType = String(options.suggestedProductType || "").trim();
+  const firstImageName = String(imageNames[0] || "").trim();
+  const fallbackTitle = shortDescription || (firstImageName ? firstImageName.replace(/\.[a-z0-9]+$/i, "") : "New Product");
+  const title = fallbackTitle.slice(0, 120) || "New Product";
+
+  const row = {};
+  for (const header of headers) {
+    row[header] = "";
+  }
+
+  if (Object.prototype.hasOwnProperty.call(row, "group_id")) row.group_id = `grp-${Date.now()}`;
+  if (Object.prototype.hasOwnProperty.call(row, "title")) row.title = title;
+  if (Object.prototype.hasOwnProperty.call(row, "handle")) row.handle = slugify(title);
+  if (Object.prototype.hasOwnProperty.call(row, "product_type")) row.product_type = suggestedProductType;
+  if (Object.prototype.hasOwnProperty.call(row, "description")) row.description = shortDescription;
+  if (Object.prototype.hasOwnProperty.call(row, "body_html")) row.body_html = shortDescription;
+  if (Object.prototype.hasOwnProperty.call(row, "ready_to_publish")) row.ready_to_publish = "no";
+  if (Object.prototype.hasOwnProperty.call(row, "metafields_json")) {
+    row.metafields_json = JSON.stringify(buildMetafieldSeed(8));
+  }
+
+  const imageHeaders = headers.filter((header) => /^image(_\d+)?$/i.test(header) || /^image_\d+$/i.test(header));
+  imageHeaders.forEach((header, idx) => {
+    const name = imageNames[idx] || "";
+    row[header] = name ? toPosixPath(path.join(imageRoot, name)) : "";
+  });
+
+  const csv = [
+    headers.map((header) => csvEscape(header)).join(","),
+    headers.map((header) => csvEscape(row[header] || "")).join(","),
+    "",
+  ].join("\n");
+
+  return {
+    headers,
+    row,
+    csv,
+    suggestedProductType,
+  };
+}
+
+function sanitizeUploadFileName(value) {
+  const base = path.basename(String(value || "image").trim() || "image");
+  return base.replace(/[^a-zA-Z0-9._-]/g, "_");
+}
+
+function persistUploadedImages(shopContext, images, folderName = "") {
+  const list = Array.isArray(images) ? images : [];
+  if (!list.length) {
+    throw new Error("At least one image is required.");
+  }
+  if (list.length > MAX_UPLOAD_IMAGES) {
+    throw new Error(`Too many images in one upload. Max is ${MAX_UPLOAD_IMAGES}.`);
+  }
+
+  const stamp = new Date().toISOString().replace(/[.:]/g, "-");
+  const customFolder = sanitizeUploadFileName(folderName || "").replace(/\.+/g, "").slice(0, 40);
+  const folder = customFolder || stamp;
+  const uploadsRel = `${shopContext.paths.sessionDirRel}/uploaded-images/${folder}`;
+  const uploadsAbs = path.resolve(process.cwd(), uploadsRel);
+  fs.mkdirSync(uploadsAbs, { recursive: true });
+
+  const saved = [];
+  for (const item of list) {
+    const name = sanitizeUploadFileName(item && item.name || "image");
+    const contentBase64 = String(item && item.contentBase64 || "").trim();
+    if (!contentBase64) {
+      throw new Error(`Missing content for image: ${name}`);
+    }
+
+    const buffer = Buffer.from(contentBase64, "base64");
+    if (!buffer.length) {
+      throw new Error(`Decoded image is empty: ${name}`);
+    }
+    if (buffer.length > MAX_UPLOAD_IMAGE_BYTES) {
+      throw new Error(`Image exceeds max size (${MAX_UPLOAD_IMAGE_BYTES} bytes): ${name}`);
+    }
+
+    const targetPath = path.join(uploadsAbs, name);
+    fs.writeFileSync(targetPath, buffer);
+    saved.push({
+      name,
+      bytes: buffer.length,
+      path: toPosixPath(path.join(uploadsRel, name)),
+    });
+  }
+
+  return {
+    imageRoot: toPosixPath(uploadsRel),
+    saved,
+  };
 }
 
 function buildPilotAudit(rows) {
@@ -2176,6 +2719,246 @@ function createServer() {
           ok: true,
           shop: shopContext.shop,
           attention: orchestrateAttention(rows, limit),
+        });
+      } catch (error) {
+        return sendJson(res, 400, { ok: false, error: String(error.message || error) });
+      }
+    }
+
+    if (req.method === "POST" && requestUrl.pathname === "/api/workflow/upload-images") {
+      try {
+        const body = await readBody(req);
+        const shopContext = getContext(body);
+        const images = Array.isArray(body.images) ? body.images : [];
+        const folderName = String(body.folderName || "").trim();
+        const uploaded = persistUploadedImages(shopContext, images, folderName);
+        return sendJson(res, 200, {
+          ok: true,
+          shop: shopContext.shop,
+          imageRoot: uploaded.imageRoot,
+          imageCount: uploaded.saved.length,
+          images: uploaded.saved,
+        });
+      } catch (error) {
+        return sendJson(res, 400, { ok: false, error: String(error.message || error) });
+      }
+    }
+
+    if (req.method === "GET" && requestUrl.pathname === "/api/store/product-types") {
+      try {
+        return sendJson(res, 200, {
+          ok: true,
+          productTypes: readStoreProductTypes(),
+        });
+      } catch (error) {
+        return sendJson(res, 500, { ok: false, error: String(error.message || error) });
+      }
+    }
+
+    if (req.method === "GET" && requestUrl.pathname === "/api/brand-profile/latest") {
+      try {
+        const shopContext = getContext();
+        const stored = readBrandProfile(shopContext.paths.brandProfilePath);
+        const fallback = readDefaultBrandProfileFromCsv();
+        const brandProfile = {
+          ...fallback,
+          ...stored,
+          brandName: firstNonEmpty([stored.brandName, fallback.brandName]),
+          brandVendor: firstNonEmpty([stored.brandVendor, fallback.brandVendor]),
+          websiteUrl: firstNonEmpty([stored.websiteUrl, fallback.websiteUrl]),
+          preset: firstNonEmpty([stored.preset, fallback.preset]),
+          notes: firstNonEmpty([stored.notes, fallback.notes]),
+        };
+        return sendJson(res, 200, {
+          ok: true,
+          brandProfile,
+        });
+      } catch (error) {
+        return sendJson(res, 500, { ok: false, error: String(error.message || error) });
+      }
+    }
+
+    if (req.method === "POST" && requestUrl.pathname === "/api/brand-profile/save") {
+      try {
+        const body = await readBody(req);
+        const shopContext = getContext(body);
+        const current = readBrandProfile(shopContext.paths.brandProfilePath);
+        const next = {
+          ...current,
+          updatedAt: new Date().toISOString(),
+          brandName: String(body.brandName || "").trim(),
+          brandVendor: String(body.brandVendor || "").trim(),
+          websiteUrl: String(body.websiteUrl || "").trim(),
+          preset: String(body.preset || "").trim(),
+          tone: String(body.tone || "").trim(),
+          notes: String(body.notes || "").trim(),
+        };
+        writeBrandProfile(shopContext.paths.brandProfilePath, next);
+        return sendJson(res, 200, {
+          ok: true,
+          brandProfile: next,
+        });
+      } catch (error) {
+        return sendJson(res, 400, { ok: false, error: String(error.message || error) });
+      }
+    }
+
+    if (req.method === "POST" && requestUrl.pathname === "/api/workflow/product-type/feedback") {
+      try {
+        const body = await readBody(req);
+        const shopContext = getContext(body);
+        const shortDescription = String(body.shortDescription || "").trim();
+        const imageNames = Array.isArray(body.imageNames)
+          ? body.imageNames.map((x) => String(x || "").trim()).filter(Boolean)
+          : [];
+        const productType = String(body.productType || "").trim();
+        const learning = recordProductTypeFeedback(shopContext, shortDescription, imageNames, productType);
+        return sendJson(res, 200, {
+          ok: true,
+          shop: shopContext.shop,
+          learning,
+        });
+      } catch (error) {
+        return sendJson(res, 400, { ok: false, error: String(error.message || error) });
+      }
+    }
+
+    if (req.method === "GET" && requestUrl.pathname === "/api/workflow/template/download") {
+      try {
+        const absolute = INTAKE_TEMPLATE_PATH;
+        if (!fs.existsSync(absolute)) {
+          return sendJson(res, 404, {
+            ok: false,
+            error: "Template not found. Run bootstrap first.",
+          });
+        }
+        const content = fs.readFileSync(absolute, "utf8");
+        const filename = `products-intake-template-${new Date().toISOString().slice(0, 10)}.csv`;
+        res.writeHead(200, {
+          "Content-Type": "text/csv; charset=utf-8",
+          "Content-Disposition": `attachment; filename=\"${filename}\"`,
+        });
+        res.end(content);
+        return;
+      } catch (error) {
+        return sendJson(res, 500, { ok: false, error: String(error.message || error) });
+      }
+    }
+
+    if (req.method === "POST" && requestUrl.pathname === "/api/workflow/template/from-images") {
+      try {
+        const body = await readBody(req);
+        const shopContext = getContext(body);
+        const headers = readIntakeTemplateHeaders();
+        const shortDescription = String(body.shortDescription || "").trim();
+        const imageNames = Array.isArray(body.imageNames)
+          ? body.imageNames.map((x) => String(x || "").trim()).filter(Boolean)
+          : [];
+        const imageRoot = String(body.imageRoot || "assets/products").trim() || "assets/products";
+        const suggestion = suggestProductType(shopContext, shortDescription, imageNames);
+        const suggestedProductType = suggestion.productType;
+        const profile = readBrandProfile(shopContext.paths.brandProfilePath);
+        const fallbackProfile = readDefaultBrandProfileFromCsv();
+        const brandProfile = {
+          ...fallbackProfile,
+          ...profile,
+          brandName: firstNonEmpty([profile.brandName, fallbackProfile.brandName]),
+          brandVendor: firstNonEmpty([profile.brandVendor, fallbackProfile.brandVendor]),
+          websiteUrl: firstNonEmpty([profile.websiteUrl, fallbackProfile.websiteUrl]),
+          preset: firstNonEmpty([profile.preset, fallbackProfile.preset]),
+          notes: firstNonEmpty([profile.notes, fallbackProfile.notes]),
+        };
+        const templateDefaults = readTemplateDefaults(shortDescription, imageNames);
+        const draft = composeDraftCsvFromImages(headers, {
+          shortDescription,
+          imageNames,
+          imageRoot,
+          suggestedProductType,
+        });
+        const autofilledRow = applyAutofillToRow(draft.row, {
+          shortDescription,
+          imageNames,
+          imageRoot,
+          suggestedProductType,
+          templateDefaults,
+          brandProfile,
+        });
+        const csvContent = [
+          draft.headers.map((header) => csvEscape(header)).join(","),
+          draft.headers.map((header) => csvEscape(autofilledRow[header] || "")).join(","),
+          "",
+        ].join("\n");
+        const productTypes = readStoreProductTypes();
+        return sendJson(res, 200, {
+          ok: true,
+          template: {
+            headers: draft.headers,
+            row: autofilledRow,
+            csvContent,
+            suggestedProductType: draft.suggestedProductType,
+            suggestionSource: suggestion.source,
+            imageRoot,
+            productTypes,
+            metafieldSeed: buildMetafieldSeed(8),
+            brandProfile,
+          },
+        });
+      } catch (error) {
+        return sendJson(res, 400, { ok: false, error: String(error.message || error) });
+      }
+    }
+
+    if (req.method === "POST" && requestUrl.pathname === "/api/workflow/template/autofill") {
+      try {
+        const body = await readBody(req);
+        const shopContext = getContext(body);
+        const headers = Array.isArray(body.headers)
+          ? body.headers.map((x) => String(x || "").trim()).filter(Boolean)
+          : [];
+        const row = body.row && typeof body.row === "object" ? body.row : {};
+        if (!headers.length) {
+          return sendJson(res, 400, { ok: false, error: "headers are required." });
+        }
+
+        const shortDescription = String(body.shortDescription || "").trim();
+        const imageNames = Array.isArray(body.imageNames)
+          ? body.imageNames.map((x) => String(x || "").trim()).filter(Boolean)
+          : [];
+        const imageRoot = String(body.imageRoot || "assets/products").trim() || "assets/products";
+        const suggestedProductType = String(body.suggestedProductType || "").trim();
+        const profile = readBrandProfile(shopContext.paths.brandProfilePath);
+        const fallbackProfile = readDefaultBrandProfileFromCsv();
+        const brandProfile = {
+          ...fallbackProfile,
+          ...profile,
+          brandName: firstNonEmpty([profile.brandName, fallbackProfile.brandName]),
+          brandVendor: firstNonEmpty([profile.brandVendor, fallbackProfile.brandVendor]),
+          websiteUrl: firstNonEmpty([profile.websiteUrl, fallbackProfile.websiteUrl]),
+          preset: firstNonEmpty([profile.preset, fallbackProfile.preset]),
+          notes: firstNonEmpty([profile.notes, fallbackProfile.notes]),
+        };
+        const templateDefaults = readTemplateDefaults(shortDescription, imageNames);
+        const filled = applyAutofillToRow(row, {
+          shortDescription,
+          imageNames,
+          imageRoot,
+          suggestedProductType,
+          templateDefaults,
+          brandProfile,
+        });
+        const csvContent = [
+          headers.map((header) => csvEscape(header)).join(","),
+          headers.map((header) => csvEscape(filled[header] || "")).join(","),
+          "",
+        ].join("\n");
+        return sendJson(res, 200, {
+          ok: true,
+          template: {
+            headers,
+            row: filled,
+            csvContent,
+            brandProfile,
+          },
         });
       } catch (error) {
         return sendJson(res, 400, { ok: false, error: String(error.message || error) });
