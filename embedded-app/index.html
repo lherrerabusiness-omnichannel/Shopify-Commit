@@ -2468,10 +2468,10 @@
             throw new Error(pushData.error || "Draft push failed after import.");
           }
           workflowStatus.textContent = summarizeWorkflowOutput(
-            "Generate/import completed and draft pushed to Shopify.",
+            "Generate/import completed and dry-run push validated (no Shopify draft created).",
             importResult,
           );
-          quickStatus.textContent = "Draft pushed to Shopify (dry mode). Open your Shopify products to review wording and details.";
+          quickStatus.textContent = "Dry-run push completed. No Shopify draft is created in dry mode; use Push Live to create drafts.";
         } else {
           quickStatus.textContent = origin === "quick"
             ? `Draft generated. Using image root: ${imageRoot}. Taxonomy auto-similar is ${autoApplyTaxonomyFromSimilar ? "on" : "off"}. Review rows below, then push dry before live.`
