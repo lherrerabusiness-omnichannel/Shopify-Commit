@@ -475,6 +475,51 @@ function parseConfidence(value) {
   return null;
 }
 
+function buildPilotAudit(rows) {
+  const items = Array.isArray(rows) ? rows : [];
+  const audit = {
+    rowCount: items.length,
+    readyCount: 0,
+    lowConfidenceCount: 0,
+    taxonomyExactCount: 0,
+    taxonomySimilarCount: 0,
+    taxonomyNeedsReviewCount: 0,
+    autoTaxonomyEnabledCount: 0,
+    classificationNotice: "",
+  };
+
+  for (const row of items) {
+    const ready = String(row.ready_to_publish || "").trim().toLowerCase();
+    if (ready === "yes") {
+      audit.readyCount += 1;
+    }
+
+    const confidence = parseConfidence(row.confidence);
+    if (confidence !== null && confidence < 85) {
+      audit.lowConfidenceCount += 1;
+    }
+
+    const source = String(row.product_type_source || "").trim().toLowerCase();
+    if (source === "mapped-exact" || source === "mapped-existing") {
+      audit.taxonomyExactCount += 1;
+    } else if (source === "mapped-similar") {
+      audit.taxonomySimilarCount += 1;
+    } else {
+      audit.taxonomyNeedsReviewCount += 1;
+    }
+
+    if (String(row.auto_taxonomy_similar || "").trim().toLowerCase() === "yes") {
+      audit.autoTaxonomyEnabledCount += 1;
+    }
+
+    if (!audit.classificationNotice) {
+      audit.classificationNotice = String(row.classification_notice || "").trim();
+    }
+  }
+
+  return audit;
+}
+
 function isTruthyFlag(value) {
   const raw = String(value || "").trim().toLowerCase();
   return raw === "true" || raw === "1" || raw === "yes";
@@ -715,6 +760,7 @@ async function performWorkflowImport(shopContext, payload) {
   const result = await runImportWithInput(shopContext, inputPath, imageRoot, {
     autoApplyTaxonomyFromSimilar,
   });
+  const pilotAudit = buildPilotAudit(result.rows);
 
   shopContext.workflowState.lastImport = {
     ok: result.ok,
@@ -723,6 +769,7 @@ async function performWorkflowImport(shopContext, payload) {
     stderr: result.stderr,
     shortDescription,
     autoApplyTaxonomyFromSimilar,
+    pilotAudit,
     inputPath: toPosixPath(inputPath),
     outputPath: toPosixPath(result.outputPath),
     reportPath: toPosixPath(result.reportPath),
@@ -742,6 +789,7 @@ async function performWorkflowImport(shopContext, payload) {
     stderr: result.stderr,
     shortDescription,
     autoApplyTaxonomyFromSimilar,
+    pilotAudit,
     inputPath: toPosixPath(inputPath),
     outputPath: toPosixPath(result.outputPath),
     reportPath: toPosixPath(result.reportPath),

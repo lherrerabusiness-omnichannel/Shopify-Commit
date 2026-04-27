@@ -288,6 +288,16 @@
 - Artifacts:
   1. C2-04_VERIFICATION.md
 
+### C2-05 - Pilot confidence and taxonomy audit cues
+- Status: DONE
+- Estimate: 6h
+- Scope:
+  - Add pilot audit summary metrics for confidence and taxonomy risk.
+  - Surface audit metrics in embedded quick path after import runs.
+  - Add row-level taxonomy cue in review table for faster operator triage.
+- Artifacts:
+  1. C2-05_VERIFICATION.md
+
 ## Weekly Cadence
 
 - Session 1 (2h): Build task

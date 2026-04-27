@@ -563,6 +563,7 @@
                 <button class="btn" id="quickDiagnosticsBtn" type="button">Export Support Bundle</button>
               </div>
               <div class="status-list" id="quickStatus">Quick path ready. Connect store, add CSV, then Generate Listing Draft.</div>
+              <div class="status-list" id="pilotAuditStatus">Pilot audit idle. Import a draft to view confidence and taxonomy cues.</div>
             </div>
           </div>
           <div class="quick-guide">
@@ -689,6 +690,7 @@
                   <th>Group</th>
                   <th>Title</th>
                   <th>Type</th>
+                  <th>Taxonomy Cue</th>
                   <th>Ready</th>
                   <th>Confidence</th>
                   <th>Blockers</th>
@@ -743,6 +745,7 @@
     const quickConnectionBtn = document.getElementById("quickConnectionBtn");
     const quickDiagnosticsBtn = document.getElementById("quickDiagnosticsBtn");
     const quickStatus = document.getElementById("quickStatus");
+    const pilotAuditStatus = document.getElementById("pilotAuditStatus");
     const workflowCsvFile = document.getElementById("workflowCsvFile");
     const workflowImageRoot = document.getElementById("workflowImageRoot");
     const workflowLiveConfirm = document.getElementById("workflowLiveConfirm");
@@ -1077,12 +1080,41 @@
         .replace(/'/g, "&#39;");
     }
 
+    function summarizePilotAudit(audit) {
+      const a = audit || {};
+      const lines = [
+        `rows: ${a.rowCount || 0}`,
+        `ready: ${a.readyCount || 0}`,
+        `low_confidence(<85): ${a.lowConfidenceCount || 0}`,
+        `taxonomy_exact: ${a.taxonomyExactCount || 0}`,
+        `taxonomy_similar: ${a.taxonomySimilarCount || 0}`,
+        `taxonomy_review_needed: ${a.taxonomyNeedsReviewCount || 0}`,
+      ];
+      if (a.classificationNotice) {
+        lines.push(`notice: ${a.classificationNotice}`);
+      }
+      return lines.join("\n");
+    }
+
+    function taxonomyCueForRow(row) {
+      const source = String(row.product_type_source || "").trim();
+      const auto = String(row.auto_taxonomy_similar || "").trim().toLowerCase() === "yes";
+      if (!source) return "n/a";
+      if (source === "input-new" || source === "blank") {
+        return "Review required";
+      }
+      if (source === "mapped-similar") {
+        return auto ? "Similar match applied" : "Similar match available";
+      }
+      return "Exact match";
+    }
+
     function renderWorkflowRows(rows) {
       workflowRowsBody.innerHTML = "";
       const items = Array.isArray(rows) ? rows : [];
       if (!items.length) {
         const tr = document.createElement("tr");
-        tr.innerHTML = '<td colspan="6">No rows available yet.</td>';
+        tr.innerHTML = '<td colspan="7">No rows available yet.</td>';
         workflowRowsBody.appendChild(tr);
         return;
       }
@@ -1090,12 +1122,17 @@
       items.slice(0, 120).forEach((row, rowIndex) => {
         const tr = document.createElement("tr");
         tr.setAttribute("data-row-index", String(rowIndex));
+        const confidence = Number(row.confidence);
+        const confidenceText = Number.isFinite(confidence) && confidence < 85
+          ? `LOW ${sanitize(row.confidence || "")}`
+          : sanitize(row.confidence || "");
         tr.innerHTML = `
           <td>${sanitize(row.group_id || "")}</td>
           <td>${sanitize(row.title || "")}</td>
           <td>${sanitize(row.product_type || "")}</td>
+          <td>${sanitize(taxonomyCueForRow(row))}</td>
           <td>${sanitize(row.ready_to_publish || "")}</td>
-          <td>${sanitize(row.confidence || "")}</td>
+          <td>${confidenceText}</td>
           <td>${sanitize(row.publish_blockers || "")}</td>
         `;
         workflowRowsBody.appendChild(tr);
@@ -1317,6 +1354,7 @@
         if (importState && typeof importState.autoApplyTaxonomyFromSimilar === "boolean") {
           statusParts.push(`taxonomy_auto_similar: ${importState.autoApplyTaxonomyFromSimilar}`);
         }
+        pilotAuditStatus.textContent = summarizePilotAudit(importState && importState.pilotAudit ? importState.pilotAudit : null);
         workflowStatus.textContent = statusParts.join("\n");
       } catch {
         workflowStatus.textContent = "Could not load workflow latest state.";
@@ -1407,6 +1445,7 @@
           const completed = await waitForJob(job.id);
           const out = completed.result || {};
           renderWorkflowRows(out.rows || []);
+          pilotAuditStatus.textContent = summarizePilotAudit(out.pilotAudit || null);
           workflowStatus.textContent = summarizeWorkflowOutput(
             completed.status === "succeeded" ? "Generate/import completed (background)." : "Generate/import failed (background).",
             out,
@@ -1415,6 +1454,7 @@
           const res = await apiPost("/api/workflow/import", payload);
           const data = await res.json();
           renderWorkflowRows(data.rows || []);
+          pilotAuditStatus.textContent = summarizePilotAudit(data.pilotAudit || null);
           workflowStatus.textContent = summarizeWorkflowOutput(
             data.ok ? "Generate/import completed." : "Generate/import failed.",
             data,
@@ -1432,6 +1472,7 @@
       } catch (error) {
         workflowStatus.textContent = `Generate/import error: ${String(error && error.message ? error.message : error)}`;
         quickStatus.textContent = `Could not generate draft: ${String(error && error.message ? error.message : error)}`;
+        pilotAuditStatus.textContent = "Pilot audit unavailable due to import error.";
       } finally {
         workflowImportBtn.disabled = false;
         quickGenerateBtn.disabled = false;

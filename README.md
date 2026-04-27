@@ -234,6 +234,20 @@ Taxonomy auto-apply from similar product types (C2-04):
   - `Final classification stays under your control before publishing.`
 - Similar taxonomy matching can be disabled per run while preserving exact-match mapping behavior.
 
+Pilot hardening audit cues (C2-05):
+
+- Import responses now include a pilot audit summary for quick operational checks:
+  - `rowCount`
+  - `readyCount`
+  - `lowConfidenceCount`
+  - `taxonomyExactCount`
+  - `taxonomySimilarCount`
+  - `taxonomyNeedsReviewCount`
+  - `autoTaxonomyEnabledCount`
+  - `classificationNotice`
+- Embedded quick path surfaces this summary in a dedicated pilot audit status panel.
+- Review table now includes a `Taxonomy Cue` column to make classification risk visible at row level.
+
 Per-shop data partitioning (C1-01):
 
 - Embedded workflow runtime state is now isolated by shop context.
