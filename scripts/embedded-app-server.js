@@ -51,6 +51,7 @@ function getShopPaths(shopKey) {
     onboardingStatePath: path.resolve(process.cwd(), `${sessionDirRel}/embedded-onboarding-state.json`),
     diagnosticsStatePath: path.resolve(process.cwd(), `${sessionDirRel}/embedded-diagnostics-state.json`),
     pilotRolloutStatePath: path.resolve(process.cwd(), `${sessionDirRel}/embedded-pilot-rollout-state.json`),
+    pilotTelemetryPath: path.resolve(process.cwd(), `${sessionDirRel}/pilot-telemetry.jsonl`),
   };
 }
 
@@ -692,6 +693,102 @@ function buildPilotAudit(rows) {
   return audit;
 }
 
+function buildRunTelemetry(audit) {
+  const rowCount = Number(audit.rowCount || 0);
+  function rate(num) {
+    return rowCount > 0 ? Math.round((Number(num || 0) / rowCount) * 1000) / 10 : null;
+  }
+  const lowConfidenceCount = Number(audit.lowConfidenceCount || 0);
+  const taxonomyExactCount = Number(audit.taxonomyExactCount || 0);
+  const taxonomySimilarCount = Number(audit.taxonomySimilarCount || 0);
+  return {
+    rowCount,
+    readyCount: Number(audit.readyCount || 0),
+    readyRate: rate(audit.readyCount),
+    lowConfidenceCount,
+    highConfidenceCount: rowCount - lowConfidenceCount,
+    highConfidenceRate: rate(rowCount - lowConfidenceCount),
+    taxonomyExactCount,
+    taxonomySimilarCount,
+    taxonomyNeedsReviewCount: Number(audit.taxonomyNeedsReviewCount || 0),
+    taxonomyCoveredRate: rate(taxonomyExactCount + taxonomySimilarCount),
+    taxonomyNeedsReviewRate: rate(audit.taxonomyNeedsReviewCount),
+  };
+}
+
+function appendTelemetrySnapshot(shopContext, audit, importMeta) {
+  const snapshot = {
+    capturedAt: new Date().toISOString(),
+    shop: shopContext.shop,
+    inputPath: String((importMeta && importMeta.inputPath) || ""),
+    reportPath: String((importMeta && importMeta.reportPath) || ""),
+    kpi: buildRunTelemetry(audit),
+  };
+  appendJsonl(shopContext.paths.pilotTelemetryPath, snapshot);
+  return snapshot;
+}
+
+function readTelemetryHistory(shopContext, limit) {
+  const effectiveLimit = Number.isFinite(Number(limit)) ? Math.max(1, Math.min(100, Number(limit))) : 20;
+  return readJsonl(shopContext.paths.pilotTelemetryPath).slice(-effectiveLimit);
+}
+
+function summarizeTelemetryForShop(shopContext) {
+  const history = readTelemetryHistory(shopContext, 20);
+  const latest = history.length > 0 ? history[history.length - 1] : null;
+  const trend = {};
+  if (history.length >= 4) {
+    const half = Math.floor(history.length / 2);
+    const prev = history.slice(0, half);
+    const recent = history.slice(half);
+    const avgKpi = (arr, key) => {
+      const vals = arr
+        .map((x) => (x.kpi && x.kpi[key] !== null && x.kpi[key] !== undefined ? Number(x.kpi[key]) : null))
+        .filter((v) => v !== null);
+      return vals.length > 0 ? vals.reduce((s, v) => s + v, 0) / vals.length : null;
+    };
+    for (const key of ["readyRate", "highConfidenceRate", "taxonomyCoveredRate"]) {
+      const r = avgKpi(recent, key);
+      const p = avgKpi(prev, key);
+      trend[key] = (r !== null && p !== null) ? Math.round((r - p) * 10) / 10 : null;
+    }
+  }
+  return {
+    shop: shopContext.shop,
+    snapshotCount: history.length,
+    latest,
+    trend,
+    history: history.slice(-10),
+  };
+}
+
+function aggregateTelemetry() {
+  const shopEntries = [];
+  for (const shopContext of shopContexts.values()) {
+    const history = readTelemetryHistory(shopContext, 20);
+    const latest = history.length > 0 ? history[history.length - 1] : null;
+    shopEntries.push({
+      shop: shopContext.shop,
+      shopKey: shopContext.shopKey,
+      snapshotCount: history.length,
+      latest,
+    });
+  }
+  const shopsWithData = shopEntries.filter((s) => s.snapshotCount > 0).length;
+  const readyShops = shopEntries.filter(
+    (s) => s.latest && s.latest.kpi && s.latest.kpi.readyRate !== null && s.latest.kpi.readyRate >= 80,
+  );
+  return {
+    generatedAt: new Date().toISOString(),
+    totalShops: shopEntries.length,
+    shopsWithData,
+    readyShopCount: readyShops.length,
+    interventionGateTarget: 3,
+    interventionGateMet: readyShops.length >= 3,
+    shops: shopEntries,
+  };
+}
+
 function isTruthyFlag(value) {
   const raw = String(value || "").trim().toLowerCase();
   return raw === "true" || raw === "1" || raw === "yes";
@@ -952,6 +1049,10 @@ async function performWorkflowImport(shopContext, payload) {
     shopContext.workflowState.latestOutputPath = toPosixPath(result.outputPath);
     shopContext.workflowState.latestReportPath = toPosixPath(result.reportPath);
     shopContext.workflowState.latestRows = Array.isArray(result.rows) ? result.rows : [];
+    appendTelemetrySnapshot(shopContext, pilotAudit, {
+      inputPath: toPosixPath(inputPath),
+      reportPath: toPosixPath(result.reportPath),
+    });
   }
 
   return {
@@ -1682,6 +1783,21 @@ function createServer() {
       return sendJson(res, 200, {
         ok: true,
         rollout: summarizePilotRollout(shopContext),
+      });
+    }
+
+    if (req.method === "GET" && requestUrl.pathname === "/api/pilot/telemetry/latest") {
+      const shopContext = getContext();
+      return sendJson(res, 200, {
+        ok: true,
+        telemetry: summarizeTelemetryForShop(shopContext),
+      });
+    }
+
+    if (req.method === "GET" && requestUrl.pathname === "/api/pilot/telemetry/aggregate") {
+      return sendJson(res, 200, {
+        ok: true,
+        aggregate: aggregateTelemetry(),
       });
     }
 

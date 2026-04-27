@@ -330,6 +330,23 @@
 - Artifacts:
   1. C2-08_VERIFICATION.md
 
+### C2-09 - Pilot operations telemetry rollup
+- Status: DONE
+- Estimate: 4h
+- Scope:
+  - Auto-capture per-run KPI snapshot (ready rate, high-confidence rate, taxonomy covered rate) after every successful import.
+  - Persist trend snapshots per shop in `pilot-telemetry.jsonl` (per-shop, within the ui-session partition).
+  - Expose `GET /api/pilot/telemetry/latest` (per-shop KPI + trend + history).
+  - Expose `GET /api/pilot/telemetry/aggregate` (cross-shop readiness view with Epic C2 intervention gate status: 3+ pilot stores with readyRate >= 80%).
+  - Surface KPI panel in embedded UI with trend indicators (▲ ▼ →) and aggregate view button.
+- Acceptance criteria:
+  1. Each successful import appends a snapshot to the per-shop JSONL log.
+  2. `GET /api/pilot/telemetry/latest` returns `{ snapshotCount, latest.kpi, trend, history }`.
+  3. `GET /api/pilot/telemetry/aggregate` returns `{ interventionGateMet, readyShopCount, shops }`.
+  4. UI expando shows current KPI snapshot with trend arrows; aggregate button shows cross-shop status.
+- Artifacts:
+  1. C2-09_VERIFICATION.md
+
 ## Weekly Cadence
 
 - Session 1 (2h): Build task

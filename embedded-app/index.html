@@ -483,7 +483,7 @@
   <div class="topbar">
     <div>
       Shopify Commit Embedded App
-      <span class="pill">Phase C / C2-08</span>
+      <span class="pill">Phase C / C2-09</span>
       <span class="pill" id="bridgeState">App Bridge: pending</span>
     </div>
     <div id="shopContext">shop: n/a</div>
@@ -675,6 +675,26 @@
         </details>
 
         <details class="expando">
+          <summary>Pilot KPI telemetry (optional)</summary>
+          <div class="expando-body">
+            <div class="workflow" style="margin-top:0;">
+              <h3>Per-run KPI snapshot and trend</h3>
+              <p style="font-size:0.82rem;color:var(--sub);margin:0 0 10px;">
+                Captured automatically on every successful import. Tracks ready rate, high-confidence rate,
+                and taxonomy coverage to satisfy the Epic C2 intervention gate
+                (3+ pilot stores with positive outcomes).
+              </p>
+              <div class="status-list" id="pilotTelemetryStatus">Telemetry not loaded yet.</div>
+              <div class="btns">
+                <button class="btn" id="pilotTelemetryRefreshBtn" type="button">Refresh Telemetry</button>
+                <button class="btn" id="pilotTelemetryAggregateBtn" type="button">Load Aggregate View</button>
+              </div>
+              <pre class="status-list" id="pilotTelemetryAggregate" style="display:none;white-space:pre-wrap;"></pre>
+            </div>
+          </div>
+        </details>
+
+        <details class="expando">
           <summary>Advanced workflow controls (optional)</summary>
           <div class="expando-body">
             <div class="workflow" style="margin-top:0;">
@@ -810,6 +830,10 @@
     const pilotSignoffApproveBtn = document.getElementById("pilotSignoffApproveBtn");
     const pilotSignoffRevokeBtn = document.getElementById("pilotSignoffRevokeBtn");
     const pilotRolloutRefreshBtn = document.getElementById("pilotRolloutRefreshBtn");
+    const pilotTelemetryStatus = document.getElementById("pilotTelemetryStatus");
+    const pilotTelemetryRefreshBtn = document.getElementById("pilotTelemetryRefreshBtn");
+    const pilotTelemetryAggregateBtn = document.getElementById("pilotTelemetryAggregateBtn");
+    const pilotTelemetryAggregate = document.getElementById("pilotTelemetryAggregate");
     const quickDropzone = document.getElementById("quickDropzone");
     const quickCsvInput = document.getElementById("quickCsvInput");
     const quickFileMeta = document.getElementById("quickFileMeta");
@@ -845,6 +869,7 @@
     let latestOnboarding = null;
     let latestDiagnostics = null;
     let latestRollout = null;
+    let latestTelemetry = null;
     let selectedCsvFile = null;
     const classificationNoticeText = "Final classification stays under your control before publishing.";
 
@@ -1215,6 +1240,80 @@
         pilotRolloutStatus.textContent = summarizeRollout(latestRollout);
       } catch (error) {
         pilotRolloutStatus.textContent = `Signoff update failed: ${String(error && error.message ? error.message : error)}`;
+      }
+    }
+
+    function summarizeTelemetrySnapshot(telemetry) {
+      const t = telemetry || {};
+      const latest = t.latest || null;
+      const trend = t.trend || {};
+      function trendArrow(val) {
+        if (val === null || val === undefined) return "";
+        return val > 0 ? " \u25b2" : val < 0 ? " \u25bc" : " \u2192";
+      }
+      const lines = [
+        `shop: ${t.shop || "n/a"}`,
+        `snapshots: ${t.snapshotCount || 0}`,
+      ];
+      if (latest) {
+        const kpi = latest.kpi || {};
+        lines.push(`captured: ${latest.capturedAt || "n/a"}`);
+        lines.push(`rows: ${kpi.rowCount || 0}`);
+        lines.push(`ready_rate: ${kpi.readyRate !== null && kpi.readyRate !== undefined ? kpi.readyRate + "%" : "n/a"}${trendArrow(trend.readyRate)}`);
+        lines.push(`high_confidence_rate: ${kpi.highConfidenceRate !== null && kpi.highConfidenceRate !== undefined ? kpi.highConfidenceRate + "%" : "n/a"}${trendArrow(trend.highConfidenceRate)}`);
+        lines.push(`taxonomy_covered_rate: ${kpi.taxonomyCoveredRate !== null && kpi.taxonomyCoveredRate !== undefined ? kpi.taxonomyCoveredRate + "%" : "n/a"}${trendArrow(trend.taxonomyCoveredRate)}`);
+        lines.push(`low_confidence_count: ${kpi.lowConfidenceCount || 0}`);
+        lines.push(`taxonomy_needs_review: ${kpi.taxonomyNeedsReviewCount || 0}`);
+      } else {
+        lines.push("No snapshot yet. Run an import to capture telemetry.");
+      }
+      return lines.join("\n");
+    }
+
+    async function loadPilotTelemetryLatest() {
+      try {
+        const res = await apiGet("/api/pilot/telemetry/latest");
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+          throw new Error(data.error || "Could not load telemetry.");
+        }
+        latestTelemetry = data.telemetry || null;
+        pilotTelemetryStatus.textContent = summarizeTelemetrySnapshot(latestTelemetry);
+      } catch (error) {
+        pilotTelemetryStatus.textContent = `Could not load telemetry: ${String(error && error.message ? error.message : error)}`;
+      }
+    }
+
+    async function loadPilotTelemetryAggregate() {
+      pilotTelemetryAggregateBtn.disabled = true;
+      try {
+        const res = await apiGet("/api/pilot/telemetry/aggregate");
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+          throw new Error(data.error || "Could not load aggregate.");
+        }
+        const agg = data.aggregate || {};
+        const lines = [
+          `generated: ${agg.generatedAt || "n/a"}`,
+          `total_shops: ${agg.totalShops || 0}`,
+          `shops_with_data: ${agg.shopsWithData || 0}`,
+          `ready_shop_count: ${agg.readyShopCount || 0}`,
+          `intervention_gate_target: ${agg.interventionGateTarget || 3}`,
+          `intervention_gate_met: ${Boolean(agg.interventionGateMet)}`,
+        ];
+        if (Array.isArray(agg.shops)) {
+          agg.shops.forEach((s) => {
+            const kpi = s.latest && s.latest.kpi ? s.latest.kpi : null;
+            lines.push(`  shop: ${s.shop}  snapshots=${s.snapshotCount}${kpi ? `  ready=${kpi.readyRate !== null ? kpi.readyRate + "%" : "n/a"}  high_conf=${kpi.highConfidenceRate !== null ? kpi.highConfidenceRate + "%" : "n/a"}  taxonomy_cov=${kpi.taxonomyCoveredRate !== null ? kpi.taxonomyCoveredRate + "%" : "n/a"}` : ""}`);
+          });
+        }
+        pilotTelemetryAggregate.textContent = lines.join("\n");
+        pilotTelemetryAggregate.style.display = "";
+      } catch (error) {
+        pilotTelemetryAggregate.textContent = `Aggregate load failed: ${String(error && error.message ? error.message : error)}`;
+        pilotTelemetryAggregate.style.display = "";
+      } finally {
+        pilotTelemetryAggregateBtn.disabled = false;
       }
     }
 
@@ -1859,6 +1958,8 @@
     pilotSignoffApproveBtn.addEventListener("click", () => savePilotSignoff(true));
     pilotSignoffRevokeBtn.addEventListener("click", () => savePilotSignoff(false));
     pilotRolloutRefreshBtn.addEventListener("click", loadPilotRolloutLatest);
+    pilotTelemetryRefreshBtn.addEventListener("click", loadPilotTelemetryLatest);
+    pilotTelemetryAggregateBtn.addEventListener("click", loadPilotTelemetryAggregate);
     workflowImportBtn.addEventListener("click", () => runWorkflowImport("advanced"));
     workflowPushDryBtn.addEventListener("click", () => runWorkflowPush("dry"));
     workflowPushLiveBtn.addEventListener("click", () => runWorkflowPush("live"));
@@ -1872,6 +1973,7 @@
     loadOnboardingLatest();
     loadDiagnosticsLatest();
     loadPilotRolloutLatest();
+    loadPilotTelemetryLatest();
     loadWorkflowLatest();
     loadJobsLatest();
     loadFailedInbox();
@@ -1881,6 +1983,7 @@
       loadOnboardingLatest();
       loadDiagnosticsLatest();
       loadPilotRolloutLatest();
+      loadPilotTelemetryLatest();
       loadJobsLatest();
       loadFailedInbox();
       loadAttentionLatest();
