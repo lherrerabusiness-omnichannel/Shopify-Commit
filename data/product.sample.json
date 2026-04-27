@@ -1,0 +1,29 @@
+[
+  {
+    "title": "Everyday Performance Tee",
+    "descriptionHtml": "<p>Breathable everyday tee with a premium feel.</p>",
+    "vendor": "Your Brand",
+    "productType": "Apparel",
+    "status": "DRAFT",
+    "tags": ["new", "spring", "tee"],
+    "seo": {
+      "title": "Everyday Performance Tee",
+      "description": "Breathable everyday tee with a premium feel."
+    },
+    "options": ["Size", "Color"],
+    "variants": [
+      {
+        "optionValues": ["Small", "Black"],
+        "price": "29.00",
+        "sku": "EPT-S-BLK",
+        "inventoryQuantity": 20
+      },
+      {
+        "optionValues": ["Medium", "Black"],
+        "price": "29.00",
+        "sku": "EPT-M-BLK",
+        "inventoryQuantity": 15
+      }
+    ]
+  }
+]

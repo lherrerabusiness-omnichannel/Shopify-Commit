@@ -1,0 +1,154 @@
+[
+  {
+    "title": "Image Validation Test",
+    "handle": "image-validation-test",
+    "descriptionHtml": "<p>Validate image sizing messages. Ironsmith Lighting Products.</p><ul><li>Bulb shape: A19</li><li>Base type: E26</li><li>Wattage: 5</li><li>Voltage: 120V</li><li>Lumen output: 450 lm</li><li>Color temperature: 3000K</li><li>Dimmable: Yes</li></ul>",
+    "vendor": "Ironsmith Lighting",
+    "productType": "Light Bulb",
+    "status": "DRAFT",
+    "tags": [
+      "bulb",
+      "ironsmith-lighting-products",
+      "brand-ironsmith",
+      "ai-generated-draft",
+      "import-csv",
+      "group-img-val-001",
+      "mapped-product-type",
+      "needs-image-review"
+    ],
+    "seo": {
+      "title": "Image Validation Test E26 3000K",
+      "description": "Validate image sizing messages. Ironsmith Lighting Products."
+    },
+    "options": [
+      "Pack Size"
+    ],
+    "variants": [
+      {
+        "optionValues": [
+          "1-Pack"
+        ],
+        "price": "9.99",
+        "sku": "IMG-VAL-001",
+        "inventoryQuantity": 5
+      }
+    ],
+    "metafields": [
+      {
+        "namespace": "custom",
+        "key": "bulb_shape",
+        "type": "single_line_text_field",
+        "value": "A19"
+      },
+      {
+        "namespace": "custom",
+        "key": "base_type",
+        "type": "single_line_text_field",
+        "value": "E26"
+      },
+      {
+        "namespace": "custom",
+        "key": "wattage",
+        "type": "single_line_text_field",
+        "value": "5"
+      },
+      {
+        "namespace": "custom",
+        "key": "voltage",
+        "type": "single_line_text_field",
+        "value": "120V"
+      },
+      {
+        "namespace": "custom",
+        "key": "lumen_output",
+        "type": "single_line_text_field",
+        "value": "450 lm"
+      },
+      {
+        "namespace": "custom",
+        "key": "color_temp",
+        "type": "single_line_text_field",
+        "value": "3000K"
+      },
+      {
+        "namespace": "custom",
+        "key": "dimmable",
+        "type": "single_line_text_field",
+        "value": "Yes"
+      }
+    ],
+    "source": {
+      "groupId": "img-val-001",
+      "imageFolder": "tmp-image-validation",
+      "imageCount": 2,
+      "heroImage": "assets/products/tmp-image-validation/large.jpg",
+      "imageConfidence": 45,
+      "imageCandidates": [
+        "assets/products/tmp-image-validation/large.jpg",
+        "assets/products/tmp-image-validation/small.jpg"
+      ],
+      "imageAttention": [
+        {
+          "code": "image_too_large_bytes",
+          "severity": "warning",
+          "file": "assets/products/tmp-image-validation/large.jpg",
+          "message": "Image file is too large (11.0 MB). Maximum is 10.0 MB.",
+          "action": "Compress or resize the image before import."
+        },
+        {
+          "code": "image_too_small_bytes",
+          "severity": "warning",
+          "file": "assets/products/tmp-image-validation/small.jpg",
+          "message": "Image file is too small (0 KB). Minimum is 30 KB.",
+          "action": "Upload a higher-quality source image."
+        },
+        {
+          "code": "hero_low_confidence",
+          "severity": "warning",
+          "file": "assets/products/tmp-image-validation/large.jpg",
+          "message": "Hero image confidence is low for this listing.",
+          "action": "Upload a front-facing image on a plain background to improve confidence."
+        }
+      ],
+      "notes": "A1-05 validation",
+      "confidence": 100,
+      "issues": [
+        "Low-confidence hero image selection",
+        "Image attention: Image file is too large (11.0 MB). Maximum is 10.0 MB.",
+        "Image attention: Image file is too small (0 KB). Minimum is 30 KB.",
+        "Image attention: Hero image confidence is low for this listing."
+      ],
+      "metafieldValidationIssues": [],
+      "requiredFixes": [
+        "Add a cleaner hero image (front-facing on plain background)",
+        "Compress or resize the image before import.",
+        "Upload a higher-quality source image.",
+        "Upload a front-facing image on a plain background to improve confidence."
+      ],
+      "mappedDynamicMetafields": [
+        "custom.wattage"
+      ],
+      "inferredFields": [],
+      "mappedProductType": {
+        "value": "Light Bulb",
+        "matchedExisting": true,
+        "createdNew": false,
+        "source": "Light Bulb"
+      },
+      "matchedCollections": [],
+      "autoAppliedTags": [],
+      "categoryProfile": "Light Bulb",
+      "readyToPublish": false,
+      "publishBlockers": [
+        "hero_image"
+      ],
+      "useBrandProfile": true,
+      "brandProfile": "ironsmith-default",
+      "templateKey": "",
+      "appliedFallbacks": [
+        "description:brand-mention",
+        "tags:brand"
+      ]
+    }
+  }
+]

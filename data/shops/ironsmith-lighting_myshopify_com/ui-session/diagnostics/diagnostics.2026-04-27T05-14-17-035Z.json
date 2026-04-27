@@ -1,0 +1,248 @@
+{
+  "generatedAt": "2026-04-27T05:14:17.034Z",
+  "ticket": "C2-02",
+  "shop": "ironsmith-lighting.myshopify.com",
+  "shopKey": "ironsmith-lighting_myshopify_com",
+  "diagnosticsVersion": 1,
+  "config": {
+    "host": "127.0.0.1",
+    "port": 4320,
+    "apiVersion": "2025-10",
+    "hasClientId": true,
+    "hasClientSecret": true,
+    "embeddedAllowLivePush": false,
+    "retryPolicy": {
+      "maxRetries": 5,
+      "baseMs": 500,
+      "maxMs": 8000
+    },
+    "tokenSecurity": {
+      "authEncryptionKeyConfigured": false,
+      "authEncryptionOldKeysConfigured": false
+    },
+    "flags": {
+      "debug": false
+    }
+  },
+  "onboarding": {
+    "status": "succeeded",
+    "startedAt": "2026-04-27T04:57:06.735Z",
+    "completedAt": "2026-04-27T04:57:12.976Z",
+    "durationMs": 6241,
+    "mode": "full",
+    "checks": [
+      {
+        "id": "shop-domain",
+        "label": "Shop domain is valid",
+        "ok": true,
+        "detail": "ironsmith-lighting.myshopify.com"
+      },
+      {
+        "id": "auth-config",
+        "label": "OAuth app credentials configured",
+        "ok": true,
+        "detail": "SHOPIFY_CLIENT_ID and SHOPIFY_CLIENT_SECRET present."
+      },
+      {
+        "id": "auth-token",
+        "label": "Persisted shop token available",
+        "ok": true,
+        "detail": "Token found for ironsmith-lighting.myshopify.com."
+      },
+      {
+        "id": "schema-file",
+        "label": "Schema snapshot available",
+        "ok": true,
+        "detail": "data/shopify-metafields.product.json"
+      },
+      {
+        "id": "store-db",
+        "label": "Store DB available",
+        "ok": true,
+        "detail": "data/shopify-store-db.json"
+      },
+      {
+        "id": "single-template",
+        "label": "Single intake template available",
+        "ok": true,
+        "detail": "data/intake-single/products-intake.csv"
+      },
+      {
+        "id": "partition-paths",
+        "label": "Shop partition paths writable",
+        "ok": true,
+        "detail": "data/shops/ironsmith-lighting_myshopify_com/ui-session | reports/shops/ironsmith-lighting_myshopify_com | data/shops/ironsmith-lighting_myshopify_com/recovery"
+      }
+    ],
+    "sample": {
+      "ok": true,
+      "rowCount": 1,
+      "outputPath": "data/shops/ironsmith-lighting_myshopify_com/ui-session/products.embedded.2026-04-27T04-57-11-996Z.json",
+      "reportPath": "reports/shops/ironsmith-lighting_myshopify_com/review-report.embedded.2026-04-27T04-57-11-996Z.csv",
+      "error": ""
+    },
+    "error": ""
+  },
+  "bootstrap": {
+    "status": "succeeded",
+    "trigger": "onboarding-full",
+    "startedAt": "2026-04-27T04:57:06.737Z",
+    "completedAt": "2026-04-27T04:57:11.775Z",
+    "durationMs": 5038,
+    "steps": [
+      {
+        "id": "sync-metafields",
+        "ok": true,
+        "code": 0,
+        "durationMs": 3152,
+        "stdout": "◇ injected env (0) from .env // tip: ⌘ override existing { override: true }\nProduct definitions: 63\nVariant definitions: 11\nExisting product types: 108\nSmart collections: 94\nOutput: data/shopify-metafields.product.json",
+        "stderr": ""
+      },
+      {
+        "id": "build-store-db",
+        "ok": true,
+        "code": 0,
+        "durationMs": 947,
+        "stdout": "Store DB generated: data/shopify-store-db.json\nProduct types indexed: 108\nProduct metafields indexed: 63",
+        "stderr": ""
+      },
+      {
+        "id": "generate-single-template",
+        "ok": true,
+        "code": 0,
+        "durationMs": 937,
+        "stdout": "Single-tab intake generated: data/intake-single/products-intake.csv\nOne tab supports all product types via product_type + metafields_json.",
+        "stderr": ""
+      }
+    ],
+    "error": ""
+  },
+  "workflow": {
+    "lastImport": null,
+    "lastPush": null,
+    "latestRowsCount": 0,
+    "latestOutputPath": "",
+    "latestReportPath": ""
+  },
+  "support": {
+    "tokenSummary": {
+      "shop": "ironsmith-lighting.myshopify.com",
+      "scope": "",
+      "source": "env-bootstrap",
+      "obtainedAt": "2026-04-27T03:35:42.372Z",
+      "encrypted": true,
+      "keyId": "3d68da79645af06d",
+      "hasToken": true
+    },
+    "latestJobs": [],
+    "persistedJobHistory": [
+      {
+        "id": "job-2026-04-27T03-21-26-050Z-yhae90",
+        "type": "workflow-push",
+        "status": "failed",
+        "createdAt": "2026-04-27T03:21:26.050Z",
+        "startedAt": "2026-04-27T03:21:26.050Z",
+        "completedAt": "2026-04-27T03:21:26.051Z",
+        "durationMs": 1,
+        "error": "Generated output file not found: data/ui-session/non-existent-file.json. Run import again.",
+        "payload": {
+          "mode": "live",
+          "liveConfirm": "LIVE",
+          "outputPath": "data/ui-session/non-existent-file.json"
+        },
+        "result": {
+          "ok": false,
+          "code": 1,
+          "stdout": "",
+          "stderr": ""
+        }
+      },
+      {
+        "id": "job-2026-04-27T03-21-26-078Z-7h9nih",
+        "type": "workflow-push",
+        "status": "failed",
+        "createdAt": "2026-04-27T03:21:26.078Z",
+        "startedAt": "2026-04-27T03:21:26.078Z",
+        "completedAt": "2026-04-27T03:21:26.079Z",
+        "durationMs": 1,
+        "error": "Generated output file not found: data/ui-session/non-existent-file.json. Run import again.",
+        "payload": {
+          "mode": "live",
+          "liveConfirm": "LIVE",
+          "outputPath": "data/ui-session/non-existent-file.json"
+        },
+        "result": {
+          "ok": false,
+          "code": 1,
+          "stdout": "",
+          "stderr": ""
+        }
+      }
+    ],
+    "failedInbox": [
+      {
+        "source": "job",
+        "id": "job-2026-04-27T03-21-26-078Z-7h9nih",
+        "title": "workflow-push failed",
+        "status": "failed",
+        "stage": "workflow-push",
+        "message": "Generated output file not found: data/ui-session/non-existent-file.json. Run import again.",
+        "timestamp": "2026-04-27T03:21:26.079Z",
+        "retryable": true,
+        "payload": {
+          "mode": "live",
+          "liveConfirm": "LIVE",
+          "outputPath": "data/ui-session/non-existent-file.json"
+        }
+      },
+      {
+        "source": "job",
+        "id": "job-2026-04-27T03-21-26-050Z-yhae90",
+        "title": "workflow-push failed",
+        "status": "failed",
+        "stage": "workflow-push",
+        "message": "Generated output file not found: data/ui-session/non-existent-file.json. Run import again.",
+        "timestamp": "2026-04-27T03:21:26.051Z",
+        "retryable": true,
+        "payload": {
+          "mode": "live",
+          "liveConfirm": "LIVE",
+          "outputPath": "data/ui-session/non-existent-file.json"
+        }
+      }
+    ],
+    "attention": {
+      "generatedAt": "2026-04-27T05:14:17.033Z",
+      "limit": 15,
+      "sourceRowCount": 0,
+      "actionCount": 0,
+      "affectedGroups": 0,
+      "reasonTally": {
+        "critical_blocker": 0,
+        "very_low_confidence": 0,
+        "low_confidence": 0,
+        "image_attention": 0,
+        "reported_issues": 0
+      },
+      "actions": []
+    },
+    "artifactPaths": [
+      {
+        "path": "C:\\Users\\herre\\Desktop\\Shopify Commit\\data\\shops\\ironsmith-lighting_myshopify_com\\ui-session\\embedded-bootstrap-state.json",
+        "exists": true
+      },
+      {
+        "path": "C:\\Users\\herre\\Desktop\\Shopify Commit\\data\\shops\\ironsmith-lighting_myshopify_com\\ui-session\\embedded-onboarding-state.json",
+        "exists": true
+      },
+      {
+        "path": "C:\\Users\\herre\\Desktop\\Shopify Commit\\data\\shops\\ironsmith-lighting_myshopify_com\\ui-session\\embedded-jobs-history.jsonl",
+        "exists": false
+      },
+      {
+        "path": "C:\\Users\\herre\\Desktop\\Shopify Commit\\data\\shops\\ironsmith-lighting_myshopify_com\\ui-session\\embedded-diagnostics-state.json",
+        "exists": false
+      }
+    ]
+  }
+}

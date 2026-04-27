@@ -1,0 +1,1642 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Shopify Commit Embedded Shell</title>
+  <style>
+    @import url("https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap");
+    :root {
+      --bg: #f3efe5;
+      --surface: #fffdf8;
+      --line: #d8cfbe;
+      --ink: #1f2725;
+      --sub: #5f6a66;
+      --primary: #0a7d64;
+      --primary-strong: #075f4d;
+      --ok: #006fbb;
+      --warn: #8a6116;
+      --accent: #e5672f;
+      --glow: rgba(10, 125, 100, 0.18);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Outfit", "Segoe UI", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 12% 6%, rgba(229, 103, 47, 0.1), transparent 34%),
+        radial-gradient(circle at 92% 12%, rgba(10, 125, 100, 0.11), transparent 38%),
+        linear-gradient(180deg, #fffcf6 0%, var(--bg) 42%, #efe9da 100%);
+    }
+    .topbar {
+      background: #111213;
+      color: #f6f6f7;
+      height: 52px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      letter-spacing: 0.01em;
+      font-size: 0.9rem;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      border: 1px solid #3a3b3c;
+      border-radius: 999px;
+      padding: 2px 8px;
+      font-size: 0.74rem;
+      color: #c9cccf;
+      margin-left: 6px;
+    }
+    .wrap {
+      max-width: 1160px;
+      margin: 18px auto 26px;
+      padding: 0 14px;
+      display: grid;
+      grid-template-columns: 240px 1fr;
+      gap: 12px;
+    }
+    .nav, .card {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      box-shadow: 0 10px 24px rgba(30, 33, 37, 0.06);
+    }
+    .nav {
+      padding: 10px;
+      align-self: start;
+      position: sticky;
+      top: 14px;
+    }
+    .nav h3 {
+      margin: 6px 8px 10px;
+      font-size: 0.82rem;
+      color: var(--sub);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .nav button {
+      width: 100%;
+      text-align: left;
+      border: 1px solid transparent;
+      background: transparent;
+      padding: 10px 10px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 0.86rem;
+      color: #202223;
+      margin-bottom: 4px;
+    }
+    .nav button.active {
+      border-color: #b4d0ff;
+      background: #eef5ff;
+      color: #0f2d56;
+      font-weight: 600;
+    }
+    .content {
+      display: grid;
+      gap: 12px;
+    }
+    .card {
+      padding: 14px;
+    }
+    .banner {
+      display: flex;
+      gap: 8px;
+      align-items: flex-start;
+      border-radius: 10px;
+      padding: 10px 12px;
+      border: 1px solid #b4d0ff;
+      background: #eff5ff;
+      color: #0b315f;
+      font-size: 0.86rem;
+      line-height: 1.35;
+    }
+    .row {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(140px, 1fr));
+      gap: 10px;
+      margin-top: 12px;
+    }
+    .stat {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px;
+      background: #fff;
+    }
+    .stat .k {
+      color: var(--sub);
+      font-size: 0.76rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .stat .v {
+      margin-top: 6px;
+      font-size: 1.05rem;
+      font-weight: 700;
+    }
+    .btns {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .btn {
+      border: 1px solid var(--line);
+      background: #fff;
+      color: #202223;
+      border-radius: 9px;
+      font-weight: 600;
+      font-size: 0.84rem;
+      padding: 8px 12px;
+      cursor: pointer;
+    }
+    .btn.primary {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: #fff;
+    }
+    .btn.primary:hover { background: var(--primary-strong); }
+    .mono {
+      margin-top: 10px;
+      background: #101113;
+      color: #d1d4d7;
+      border-radius: 10px;
+      padding: 10px;
+      font-family: "JetBrains Mono", Consolas, monospace;
+      font-size: 0.78rem;
+      white-space: pre-wrap;
+      min-height: 62px;
+    }
+    .inline {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+    .inline input {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 8px 10px;
+      min-width: 280px;
+      font-size: 0.84rem;
+    }
+    .token-list {
+      margin-top: 10px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px;
+      font-size: 0.82rem;
+      background: #fff;
+      line-height: 1.35;
+    }
+    .status-list {
+      margin-top: 10px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px;
+      font-size: 0.82rem;
+      background: #fff;
+      line-height: 1.35;
+      white-space: pre-wrap;
+    }
+    .quick-stage {
+      margin-top: 14px;
+      border: 1px solid #c8d8d3;
+      border-radius: 14px;
+      padding: 12px;
+      background: linear-gradient(180deg, #f9fffd 0%, #f4fbf8 100%);
+      box-shadow: 0 14px 24px var(--glow);
+    }
+    .quick-stage h3 {
+      margin: 0;
+      font-size: 1rem;
+      letter-spacing: 0.01em;
+    }
+    .quick-stage p {
+      margin: 6px 0 0;
+      color: #42514d;
+      font-size: 0.86rem;
+      line-height: 1.35;
+    }
+    .quick-grid {
+      display: grid;
+      grid-template-columns: 1.2fr 1fr;
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .dropzone {
+      border: 2px dashed #8fb7ab;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.72);
+      min-height: 132px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+      transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+    }
+    .dropzone.dragging {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(10, 125, 100, 0.12);
+      transform: translateY(-1px);
+    }
+    .dropzone strong {
+      font-size: 0.95rem;
+    }
+    .dropzone small {
+      margin-top: 6px;
+      color: var(--sub);
+      max-width: 240px;
+      line-height: 1.35;
+    }
+    .quick-input {
+      width: 100%;
+      border: 1px solid #b8c8c2;
+      border-radius: 10px;
+      background: #fff;
+      padding: 8px 10px;
+      font-size: 0.84rem;
+      font-family: inherit;
+    }
+    .quick-note {
+      margin-top: 6px;
+      font-size: 0.75rem;
+      color: #51635e;
+    }
+    .quick-guide {
+      margin-top: 10px;
+      border: 1px solid #d8cfbe;
+      background: #fff9ef;
+      border-radius: 10px;
+      padding: 9px 10px;
+      font-size: 0.79rem;
+      line-height: 1.35;
+    }
+    .quick-guide strong {
+      color: #4f3c2c;
+      letter-spacing: 0.02em;
+    }
+    .quick-guide code {
+      font-family: "JetBrains Mono", Consolas, monospace;
+      font-size: 0.76rem;
+      background: #f2ebdf;
+      border: 1px solid #dbcdb9;
+      border-radius: 6px;
+      padding: 1px 5px;
+    }
+    .expando {
+      margin-top: 10px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fff;
+      overflow: hidden;
+    }
+    .expando > summary {
+      cursor: pointer;
+      list-style: none;
+      padding: 10px;
+      font-weight: 600;
+      background: #f8faf9;
+      border-bottom: 1px solid #edf0ee;
+    }
+    .expando > summary::-webkit-details-marker { display: none; }
+    .expando-body {
+      padding: 10px;
+    }
+    .onboarding-list {
+      margin-top: 10px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fff;
+      max-height: 220px;
+      overflow: auto;
+    }
+    .onboarding-list table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.78rem;
+    }
+    .onboarding-list th,
+    .onboarding-list td {
+      border-bottom: 1px solid #e8ebef;
+      padding: 6px;
+      text-align: left;
+      vertical-align: top;
+    }
+    .onboarding-list th {
+      position: sticky;
+      top: 0;
+      background: #f7f8fa;
+    }
+    .diagnostics-list {
+      margin-top: 10px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px;
+      font-size: 0.78rem;
+      background: #fff;
+      line-height: 1.35;
+      white-space: pre-wrap;
+      max-height: 220px;
+      overflow: auto;
+    }
+    .workflow {
+      margin-top: 12px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px;
+      background: #fff;
+    }
+    .workflow h3 {
+      margin: 0 0 8px;
+      font-size: 0.92rem;
+    }
+    .workflow-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(140px, 1fr));
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .workflow-grid label {
+      display: block;
+      font-size: 0.76rem;
+      color: var(--sub);
+      margin-bottom: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .workflow-grid input,
+    .workflow-grid select {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 7px 8px;
+      font-size: 0.84rem;
+      background: #fff;
+    }
+    .workflow-table {
+      margin-top: 10px;
+      max-height: 280px;
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+    }
+    .job-list {
+      margin-top: 10px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px;
+      font-size: 0.78rem;
+      background: #fff;
+      line-height: 1.3;
+      white-space: pre-wrap;
+      max-height: 190px;
+      overflow: auto;
+    }
+    .inbox-list {
+      margin-top: 10px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fff;
+      max-height: 220px;
+      overflow: auto;
+    }
+    .attention-list {
+      margin-top: 10px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fff;
+      max-height: 240px;
+      overflow: auto;
+    }
+    .attention-list table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.76rem;
+    }
+    .attention-list th,
+    .attention-list td {
+      border-bottom: 1px solid #e8ebef;
+      padding: 6px;
+      text-align: left;
+      vertical-align: top;
+    }
+    .attention-list th {
+      position: sticky;
+      top: 0;
+      background: #f7f8fa;
+    }
+    .row-focus {
+      background: #fff6d8;
+      transition: background 300ms ease;
+    }
+    .inbox-list table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.76rem;
+    }
+    .inbox-list th,
+    .inbox-list td {
+      border-bottom: 1px solid #e8ebef;
+      padding: 6px;
+      text-align: left;
+      vertical-align: top;
+    }
+    .inbox-list th {
+      position: sticky;
+      top: 0;
+      background: #f7f8fa;
+    }
+    .workflow-table table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.78rem;
+    }
+    .workflow-table th,
+    .workflow-table td {
+      border-bottom: 1px solid #e9ecef;
+      padding: 6px;
+      text-align: left;
+      vertical-align: top;
+    }
+    .workflow-table th {
+      position: sticky;
+      top: 0;
+      background: #f7f8fa;
+      z-index: 2;
+    }
+    @media (max-width: 900px) {
+      .wrap { grid-template-columns: 1fr; }
+      .nav { position: static; }
+      .row { grid-template-columns: 1fr; }
+      .quick-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <div>
+      Shopify Commit Embedded App
+      <span class="pill">Phase C / C2-03</span>
+      <span class="pill" id="bridgeState">App Bridge: pending</span>
+    </div>
+    <div id="shopContext">shop: n/a</div>
+  </div>
+
+  <div class="wrap">
+    <aside class="nav">
+      <h3>Workflow</h3>
+      <button class="active" type="button">Quick Start</button>
+      <button type="button">Review Draft</button>
+      <button type="button">Fix and Recover</button>
+      <button type="button">Support Logs</button>
+    </aside>
+
+    <main class="content">
+      <section class="card">
+        <div class="banner" id="appBanner">
+          <strong>Embedded shell ready.</strong>
+          <span>Pass query params host/shop/apiKey to initialize App Bridge and simulate Shopify admin embed context.</span>
+        </div>
+        <div class="row">
+          <div class="stat">
+            <div class="k">Mode</div>
+            <div class="v">Embedded Scaffold</div>
+          </div>
+          <div class="stat">
+            <div class="k">Polaris Shell</div>
+            <div class="v">Navigation + Cards</div>
+          </div>
+          <div class="stat">
+            <div class="k">App Bridge</div>
+            <div class="v" id="bridgeStatus">Not initialized</div>
+          </div>
+        </div>
+        <div class="btns">
+          <button class="btn primary" id="testContextBtn" type="button">Test Context API</button>
+          <button class="btn" id="copyEmbedUrlBtn" type="button">Copy Sample Embedded URL</button>
+        </div>
+        <div class="inline">
+          <input id="shopDomainInput" type="text" placeholder="your-store.myshopify.com" />
+          <button class="btn primary" id="startOAuthBtn" type="button">Connect Store OAuth</button>
+          <button class="btn" id="refreshTokensBtn" type="button">Refresh Tokens</button>
+        </div>
+        <div class="token-list" id="tokenList">No persisted tokens loaded yet.</div>
+        <div class="inline">
+          <button class="btn primary" id="runBootstrapBtn" type="button">Run Install Bootstrap</button>
+          <button class="btn" id="refreshBootstrapBtn" type="button">Refresh Bootstrap</button>
+        </div>
+        <div class="status-list" id="bootstrapStatus">Bootstrap status not loaded yet.</div>
+        <div class="quick-stage">
+          <h3>Open Face Quick Path</h3>
+          <p>Connect your store, drop one CSV, add a short goal, and generate listing drafts. Extra tools stay nearby but optional.</p>
+          <div class="quick-grid">
+            <div>
+              <div class="dropzone" id="quickDropzone" role="button" tabindex="0" aria-label="Drop CSV file here">
+                <strong>Drop CSV Here</strong>
+                <small>or click below to choose a file. We keep everything in this same screen.</small>
+              </div>
+              <div class="inline" style="margin-top:8px;">
+                <input id="quickCsvInput" type="file" accept=".csv,text/csv" />
+              </div>
+              <div class="quick-note" id="quickFileMeta">No CSV selected yet.</div>
+            </div>
+            <div>
+              <label for="quickDescriptionInput" style="display:block;font-size:0.78rem;color:var(--sub);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.04em;">Short listing goal (optional)</label>
+              <textarea id="quickDescriptionInput" class="quick-input" rows="5" placeholder="Example: clean and clear listing copy for modern brass wall light, warm tone, highlight easy install."></textarea>
+              <div class="btns" style="margin-top:8px;">
+                <button class="btn primary" id="quickGenerateBtn" type="button">Generate Listing Draft</button>
+                <button class="btn" id="quickConnectionBtn" type="button">Check Connection</button>
+                <button class="btn" id="quickDiagnosticsBtn" type="button">Export Support Bundle</button>
+              </div>
+              <div class="status-list" id="quickStatus">Quick path ready. Connect store, add CSV, then Generate Listing Draft.</div>
+            </div>
+          </div>
+          <div class="quick-guide">
+            <strong>Quick Guide:</strong> 1) Connect Store OAuth, 2) drop CSV, 3) optional short goal, 4) click <code>Generate Listing Draft</code>, 5) review and push when ready.
+          </div>
+        </div>
+
+        <details class="expando" open>
+          <summary>Onboarding and readiness (optional)</summary>
+          <div class="expando-body">
+            <div class="workflow" style="margin-top:0;">
+              <h3>New Shop Onboarding Wizard</h3>
+              <div class="btns" style="margin-top:0;">
+                <button class="btn" id="onboardingChecksBtn" type="button">Run Install Checks</button>
+                <button class="btn" id="onboardingBootstrapBtn" type="button">Run Bootstrap Only</button>
+                <button class="btn" id="onboardingSampleBtn" type="button">Run Sample Import</button>
+                <button class="btn primary" id="onboardingFullBtn" type="button">Run Full Onboarding</button>
+                <button class="btn" id="onboardingRefreshBtn" type="button">Refresh Onboarding</button>
+              </div>
+              <div class="status-list" id="onboardingStatus">Onboarding wizard idle.</div>
+              <div class="onboarding-list">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Check</th>
+                      <th>Status</th>
+                      <th>Detail</th>
+                    </tr>
+                  </thead>
+                  <tbody id="onboardingChecksBody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </details>
+
+        <details class="expando">
+          <summary>Diagnostics and support handoff (optional)</summary>
+          <div class="expando-body">
+            <div class="workflow" style="margin-top:0;">
+              <h3>Support Diagnostics Bundle</h3>
+              <div class="btns" style="margin-top:0;">
+                <button class="btn primary" id="diagnosticsExportBtn" type="button">Export Diagnostics Bundle</button>
+                <button class="btn" id="diagnosticsRefreshBtn" type="button">Refresh Diagnostics State</button>
+              </div>
+              <div class="status-list" id="diagnosticsStatus">Diagnostics export idle.</div>
+              <div class="diagnostics-list" id="diagnosticsPreview">No diagnostics bundle preview yet.</div>
+            </div>
+          </div>
+        </details>
+
+        <details class="expando">
+          <summary>Advanced workflow controls (optional)</summary>
+          <div class="expando-body">
+            <div class="workflow" style="margin-top:0;">
+              <h3>One-Page Listing Workflow</h3>
+          <div class="workflow-grid">
+            <div>
+              <label for="workflowCsvFile">One-Tab CSV</label>
+              <input id="workflowCsvFile" type="file" accept=".csv,text/csv" />
+            </div>
+            <div>
+              <label for="workflowImageRoot">Image Root</label>
+              <input id="workflowImageRoot" type="text" value="assets/products" />
+            </div>
+            <div>
+              <label for="workflowLiveConfirm">Live Confirm</label>
+              <input id="workflowLiveConfirm" type="text" placeholder="Type LIVE for live push" />
+            </div>
+          </div>
+          <div class="btns" style="margin-top:0;">
+            <button class="btn primary" id="workflowImportBtn" type="button">Generate From CSV</button>
+            <button class="btn" id="workflowPushDryBtn" type="button">Push Dry</button>
+            <button class="btn" id="workflowPushLiveBtn" type="button">Push Live</button>
+            <button class="btn" id="workflowRefreshBtn" type="button">Refresh Latest</button>
+          </div>
+          <div class="inline">
+            <label style="font-size:0.8rem; color:#4f5965;">
+              <input id="workflowAsyncToggle" type="checkbox" checked />
+              Run actions in background jobs (B2-02)
+            </label>
+          </div>
+          <div class="status-list" id="workflowStatus">Workflow idle. Upload a CSV to begin.</div>
+          <div class="job-list" id="workflowJobs">No background jobs yet.</div>
+          <div class="inline">
+            <button class="btn" id="inboxRefreshBtn" type="button">Refresh Failed Inbox</button>
+          </div>
+          <div class="inbox-list">
+            <table>
+              <thead>
+                <tr>
+                  <th>Source</th>
+                  <th>Item</th>
+                  <th>Stage</th>
+                  <th>Message</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="inboxRowsBody"></tbody>
+            </table>
+          </div>
+          <div class="inline">
+            <button class="btn" id="attentionRefreshBtn" type="button">Refresh Attention Prompts</button>
+          </div>
+          <div class="status-list" id="attentionSummary">No attention prompts generated yet.</div>
+          <div class="attention-list">
+            <table>
+              <thead>
+                <tr>
+                  <th>Priority</th>
+                  <th>Group</th>
+                  <th>Reason</th>
+                  <th>Prompt</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="attentionRowsBody"></tbody>
+            </table>
+          </div>
+          <div class="workflow-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>Group</th>
+                  <th>Title</th>
+                  <th>Type</th>
+                  <th>Ready</th>
+                  <th>Confidence</th>
+                  <th>Blockers</th>
+                </tr>
+              </thead>
+              <tbody id="workflowRowsBody"></tbody>
+            </table>
+          </div>
+        </div>
+          </div>
+        </details>
+        <div class="mono" id="debugOutput">Waiting for App Bridge bootstrap...</div>
+      </section>
+    </main>
+  </div>
+
+  <script type="module">
+    import createApp from "https://cdn.jsdelivr.net/npm/@shopify/app-bridge@3.7.10/+esm";
+
+    const bridgeState = document.getElementById("bridgeState");
+    const bridgeStatus = document.getElementById("bridgeStatus");
+    const shopContext = document.getElementById("shopContext");
+    const debugOutput = document.getElementById("debugOutput");
+    const appBanner = document.getElementById("appBanner");
+    const testContextBtn = document.getElementById("testContextBtn");
+    const copyEmbedUrlBtn = document.getElementById("copyEmbedUrlBtn");
+    const shopDomainInput = document.getElementById("shopDomainInput");
+    const startOAuthBtn = document.getElementById("startOAuthBtn");
+    const refreshTokensBtn = document.getElementById("refreshTokensBtn");
+    const tokenList = document.getElementById("tokenList");
+    const runBootstrapBtn = document.getElementById("runBootstrapBtn");
+    const refreshBootstrapBtn = document.getElementById("refreshBootstrapBtn");
+    const bootstrapStatus = document.getElementById("bootstrapStatus");
+    const onboardingChecksBtn = document.getElementById("onboardingChecksBtn");
+    const onboardingBootstrapBtn = document.getElementById("onboardingBootstrapBtn");
+    const onboardingSampleBtn = document.getElementById("onboardingSampleBtn");
+    const onboardingFullBtn = document.getElementById("onboardingFullBtn");
+    const onboardingRefreshBtn = document.getElementById("onboardingRefreshBtn");
+    const onboardingStatus = document.getElementById("onboardingStatus");
+    const onboardingChecksBody = document.getElementById("onboardingChecksBody");
+    const diagnosticsExportBtn = document.getElementById("diagnosticsExportBtn");
+    const diagnosticsRefreshBtn = document.getElementById("diagnosticsRefreshBtn");
+    const diagnosticsStatus = document.getElementById("diagnosticsStatus");
+    const diagnosticsPreview = document.getElementById("diagnosticsPreview");
+    const quickDropzone = document.getElementById("quickDropzone");
+    const quickCsvInput = document.getElementById("quickCsvInput");
+    const quickFileMeta = document.getElementById("quickFileMeta");
+    const quickDescriptionInput = document.getElementById("quickDescriptionInput");
+    const quickGenerateBtn = document.getElementById("quickGenerateBtn");
+    const quickConnectionBtn = document.getElementById("quickConnectionBtn");
+    const quickDiagnosticsBtn = document.getElementById("quickDiagnosticsBtn");
+    const quickStatus = document.getElementById("quickStatus");
+    const workflowCsvFile = document.getElementById("workflowCsvFile");
+    const workflowImageRoot = document.getElementById("workflowImageRoot");
+    const workflowLiveConfirm = document.getElementById("workflowLiveConfirm");
+    const workflowImportBtn = document.getElementById("workflowImportBtn");
+    const workflowPushDryBtn = document.getElementById("workflowPushDryBtn");
+    const workflowPushLiveBtn = document.getElementById("workflowPushLiveBtn");
+    const workflowRefreshBtn = document.getElementById("workflowRefreshBtn");
+    const workflowAsyncToggle = document.getElementById("workflowAsyncToggle");
+    const workflowStatus = document.getElementById("workflowStatus");
+    const workflowRowsBody = document.getElementById("workflowRowsBody");
+    const workflowJobs = document.getElementById("workflowJobs");
+    const inboxRefreshBtn = document.getElementById("inboxRefreshBtn");
+    const inboxRowsBody = document.getElementById("inboxRowsBody");
+    const attentionRefreshBtn = document.getElementById("attentionRefreshBtn");
+    const attentionSummary = document.getElementById("attentionSummary");
+    const attentionRowsBody = document.getElementById("attentionRowsBody");
+
+    let latestWorkflow = null;
+    let activeJobId = "";
+    let failedInboxItems = [];
+    let latestAttention = null;
+    let latestOnboarding = null;
+    let latestDiagnostics = null;
+    let selectedCsvFile = null;
+
+    function getParams() {
+      const p = new URLSearchParams(window.location.search);
+      return {
+        host: p.get("host") || "",
+        shop: p.get("shop") || "",
+        apiKey: p.get("apiKey") || "",
+      };
+    }
+
+    function writeDebug(lines) {
+      debugOutput.textContent = lines.filter(Boolean).join("\n");
+    }
+
+    const params = getParams();
+    shopContext.textContent = `shop: ${params.shop || "n/a"}`;
+    shopDomainInput.value = params.shop || "";
+
+    function getActiveShop() {
+      return String(shopDomainInput.value || params.shop || "").trim();
+    }
+
+    function withShopUrl(rawPath) {
+      const url = new URL(rawPath, window.location.origin);
+      const shop = getActiveShop();
+      if (shop && !url.searchParams.get("shop")) {
+        url.searchParams.set("shop", shop);
+      }
+      return `${url.pathname}${url.search}`;
+    }
+
+    function withShopBody(body) {
+      const shop = getActiveShop();
+      if (!shop) return body || {};
+      return {
+        ...(body || {}),
+        shop,
+      };
+    }
+
+    function apiGet(path) {
+      return fetch(withShopUrl(path));
+    }
+
+    function apiPost(path, body) {
+      return fetch(withShopUrl(path), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(withShopBody(body)),
+      });
+    }
+
+    function describeCsvFile(file) {
+      if (!file) return "No CSV selected yet.";
+      const kb = Math.max(1, Math.round((Number(file.size || 0) / 1024)));
+      return `${file.name} (${kb} KB)`;
+    }
+
+    function setSelectedCsvFile(file, sourceLabel) {
+      selectedCsvFile = file || null;
+      quickFileMeta.textContent = selectedCsvFile
+        ? `Selected: ${describeCsvFile(selectedCsvFile)} via ${sourceLabel}.`
+        : "No CSV selected yet.";
+    }
+
+    function getSelectedCsvFile() {
+      return selectedCsvFile
+        || (quickCsvInput.files && quickCsvInput.files[0])
+        || (workflowCsvFile.files && workflowCsvFile.files[0])
+        || null;
+    }
+
+    async function checkQuickConnection() {
+      const shop = getActiveShop();
+      if (!shop) {
+        quickStatus.textContent = "Add your shop domain first, then click Connect Store OAuth.";
+        return;
+      }
+
+      await loadTokenSummaries();
+      await loadBootstrapState();
+      quickStatus.textContent = `Connection check complete for ${shop}. If OAuth is connected, you can generate immediately.`;
+    }
+
+    async function loadAuthConfig() {
+      try {
+        const res = await apiGet("/api/auth/config");
+        const data = await res.json();
+        if (!data.ok) return;
+
+        if (!data.hasClientId || !data.hasClientSecret) {
+          writeDebug([
+            "Embedded auth config is incomplete.",
+            `hasClientId: ${Boolean(data.hasClientId)}`,
+            `hasClientSecret: ${Boolean(data.hasClientSecret)}`,
+            "Set SHOPIFY_CLIENT_ID and SHOPIFY_CLIENT_SECRET in .env before OAuth.",
+          ]);
+        }
+      } catch {
+        // Keep shell interactive even if auth config probe fails.
+      }
+    }
+
+    async function loadTokenSummaries() {
+      try {
+        const res = await apiGet("/api/auth/tokens");
+        const data = await res.json();
+        const rows = Array.isArray(data.tokens) ? data.tokens : [];
+        if (!rows.length) {
+          tokenList.textContent = "No persisted tokens yet. Run Connect Store OAuth to store the first token.";
+          return;
+        }
+
+        tokenList.textContent = rows
+          .slice(0, 6)
+          .map((x, idx) => `${idx + 1}. ${x.shop} | source=${x.source || "n/a"} | scope=${x.scope || "n/a"} | obtained=${x.obtainedAt || "n/a"}`)
+          .join("\n");
+      } catch {
+        tokenList.textContent = "Could not load token summaries.";
+      }
+    }
+
+    function formatStep(step, idx) {
+      const icon = step.ok ? "ok" : "fail";
+      const line1 = `${idx + 1}. ${step.id} | ${icon} | code=${step.code} | ${step.durationMs}ms`;
+      const details = step.ok ? (step.stdout || "") : (step.stderr || step.stdout || "");
+      return details ? `${line1}\n   ${details}` : line1;
+    }
+
+    async function loadBootstrapState() {
+      try {
+        const res = await apiGet("/api/bootstrap/latest");
+        const data = await res.json();
+        const state = data.state || {};
+        const steps = Array.isArray(state.steps) ? state.steps : [];
+        const lines = [
+          `status: ${state.status || "idle"}`,
+          `trigger: ${state.trigger || "n/a"}`,
+          `started: ${state.startedAt || "n/a"}`,
+          `completed: ${state.completedAt || "n/a"}`,
+          `duration_ms: ${state.durationMs || 0}`,
+        ];
+
+        if (state.error) {
+          lines.push(`error: ${state.error}`);
+        }
+
+        if (steps.length) {
+          lines.push("steps:");
+          lines.push(...steps.slice(-3).map((x, idx) => formatStep(x, idx)));
+        }
+
+        bootstrapStatus.textContent = lines.join("\n");
+      } catch {
+        bootstrapStatus.textContent = "Could not load bootstrap status.";
+      }
+    }
+
+    function renderOnboardingChecks(checks) {
+      onboardingChecksBody.innerHTML = "";
+      const items = Array.isArray(checks) ? checks : [];
+      if (!items.length) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = '<td colspan="3">No onboarding checks run yet.</td>';
+        onboardingChecksBody.appendChild(tr);
+        return;
+      }
+
+      items.forEach((check) => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${sanitize(check.label || check.id || "")}</td>
+          <td>${sanitize(check.ok ? "PASS" : "NEEDS ATTENTION")}</td>
+          <td>${sanitize(check.detail || "")}</td>
+        `;
+        onboardingChecksBody.appendChild(tr);
+      });
+    }
+
+    function summarizeOnboarding(onboarding) {
+      const state = onboarding || {};
+      const sample = state.sample || {};
+      const lines = [
+        `status: ${state.status || "idle"}`,
+        `mode: ${state.mode || "n/a"}`,
+        `started: ${state.startedAt || "n/a"}`,
+        `completed: ${state.completedAt || "n/a"}`,
+        `duration_ms: ${state.durationMs || 0}`,
+        `sample_ok: ${Boolean(sample.ok)}`,
+        `sample_rows: ${sample.rowCount || 0}`,
+      ];
+
+      if (sample.outputPath) lines.push(`sample_output: ${sample.outputPath}`);
+      if (sample.reportPath) lines.push(`sample_report: ${sample.reportPath}`);
+      if (sample.error) lines.push(`sample_error: ${sample.error}`);
+      if (state.error) lines.push(`error: ${state.error}`);
+      return lines.join("\n");
+    }
+
+    async function loadOnboardingLatest() {
+      try {
+        const res = await apiGet("/api/onboarding/latest");
+        const data = await res.json();
+        latestOnboarding = data.onboarding || null;
+        onboardingStatus.textContent = summarizeOnboarding(latestOnboarding);
+        renderOnboardingChecks((latestOnboarding && latestOnboarding.checks) || []);
+      } catch {
+        onboardingStatus.textContent = "Could not load onboarding state.";
+      }
+    }
+
+    async function runOnboarding(mode) {
+      onboardingChecksBtn.disabled = true;
+      onboardingBootstrapBtn.disabled = true;
+      onboardingSampleBtn.disabled = true;
+      onboardingFullBtn.disabled = true;
+      try {
+        const path = mode === "checks" ? "/api/onboarding/checks" : "/api/onboarding/run";
+        const body = mode === "checks" ? {} : { mode };
+        const res = await apiPost(path, body);
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+          throw new Error(data.error || "Onboarding request failed.");
+        }
+        latestOnboarding = data.onboarding || null;
+        onboardingStatus.textContent = summarizeOnboarding(latestOnboarding);
+        renderOnboardingChecks((latestOnboarding && latestOnboarding.checks) || []);
+        await loadBootstrapState();
+        await loadWorkflowLatest();
+        await loadAttentionLatest();
+      } catch (error) {
+        onboardingStatus.textContent = `Onboarding ${mode} failed: ${String(error && error.message ? error.message : error)}`;
+      } finally {
+        onboardingChecksBtn.disabled = false;
+        onboardingBootstrapBtn.disabled = false;
+        onboardingSampleBtn.disabled = false;
+        onboardingFullBtn.disabled = false;
+      }
+    }
+
+    function summarizeDiagnosticsState(state) {
+      const s = state || {};
+      const summary = s.summary || {};
+      const lines = [
+        `status: ${s.status || "idle"}`,
+        `generated: ${s.generatedAt || "n/a"}`,
+        `file: ${s.filePath || "n/a"}`,
+        `jobs: ${summary.jobCount || 0}`,
+        `failed_inbox: ${summary.failedInbox || 0}`,
+        `workflow_rows: ${summary.workflowRows || 0}`,
+        `attention_actions: ${summary.attentionActions || 0}`,
+      ];
+      if (s.error) lines.push(`error: ${s.error}`);
+      return lines.join("\n");
+    }
+
+    async function loadDiagnosticsLatest() {
+      try {
+        const res = await apiGet("/api/diagnostics/latest");
+        const data = await res.json();
+        latestDiagnostics = data.diagnostics || null;
+        diagnosticsStatus.textContent = summarizeDiagnosticsState(latestDiagnostics);
+      } catch {
+        diagnosticsStatus.textContent = "Could not load diagnostics state.";
+      }
+    }
+
+    async function exportDiagnosticsBundle() {
+      diagnosticsExportBtn.disabled = true;
+      try {
+        const res = await apiPost("/api/diagnostics/export", { includeLogsLimit: 25 });
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+          throw new Error(data.error || "Diagnostics export failed.");
+        }
+
+        latestDiagnostics = data.diagnostics || null;
+        diagnosticsStatus.textContent = summarizeDiagnosticsState(latestDiagnostics);
+
+        const bundle = data.bundle || {};
+        const preview = {
+          generatedAt: bundle.generatedAt || "",
+          shop: bundle.shop || "",
+          config: bundle.config || {},
+          workflow: bundle.workflow || {},
+          supportSummary: {
+            latestJobs: Array.isArray(bundle.support && bundle.support.latestJobs) ? bundle.support.latestJobs.length : 0,
+            failedInbox: Array.isArray(bundle.support && bundle.support.failedInbox) ? bundle.support.failedInbox.length : 0,
+            attentionActions: bundle.support && bundle.support.attention ? bundle.support.attention.actionCount : 0,
+          },
+          filePath: data.filePath || (latestDiagnostics && latestDiagnostics.filePath) || "",
+        };
+        diagnosticsPreview.textContent = JSON.stringify(preview, null, 2);
+      } catch (error) {
+        diagnosticsStatus.textContent = `Diagnostics export failed: ${String(error && error.message ? error.message : error)}`;
+      } finally {
+        diagnosticsExportBtn.disabled = false;
+      }
+    }
+
+    function sanitize(value) {
+      return String(value || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function renderWorkflowRows(rows) {
+      workflowRowsBody.innerHTML = "";
+      const items = Array.isArray(rows) ? rows : [];
+      if (!items.length) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = '<td colspan="6">No rows available yet.</td>';
+        workflowRowsBody.appendChild(tr);
+        return;
+      }
+
+      items.slice(0, 120).forEach((row, rowIndex) => {
+        const tr = document.createElement("tr");
+        tr.setAttribute("data-row-index", String(rowIndex));
+        tr.innerHTML = `
+          <td>${sanitize(row.group_id || "")}</td>
+          <td>${sanitize(row.title || "")}</td>
+          <td>${sanitize(row.product_type || "")}</td>
+          <td>${sanitize(row.ready_to_publish || "")}</td>
+          <td>${sanitize(row.confidence || "")}</td>
+          <td>${sanitize(row.publish_blockers || "")}</td>
+        `;
+        workflowRowsBody.appendChild(tr);
+      });
+    }
+
+    function reasonLabel(code) {
+      if (code === "critical_blocker") return "Critical blocker";
+      if (code === "very_low_confidence") return "Very low confidence";
+      if (code === "low_confidence") return "Low confidence";
+      if (code === "image_attention") return "Image attention";
+      if (code === "reported_issues") return "Reported issues";
+      return code || "n/a";
+    }
+
+    function focusWorkflowRow(rowIndex) {
+      const target = workflowRowsBody.querySelector(`tr[data-row-index="${rowIndex}"]`);
+      if (!target) return;
+
+      workflowRowsBody.querySelectorAll("tr.row-focus").forEach((tr) => {
+        tr.classList.remove("row-focus");
+      });
+
+      target.classList.add("row-focus");
+      target.scrollIntoView({ block: "center", behavior: "smooth" });
+      window.setTimeout(() => {
+        target.classList.remove("row-focus");
+      }, 1800);
+    }
+
+    function renderAttention(attention) {
+      attentionRowsBody.innerHTML = "";
+      latestAttention = attention || null;
+      const actions = attention && Array.isArray(attention.actions) ? attention.actions : [];
+
+      if (!actions.length) {
+        attentionSummary.textContent = "No high-value prompts right now. Listings are clear or above confidence threshold.";
+        const tr = document.createElement("tr");
+        tr.innerHTML = '<td colspan="5">No priority prompts.</td>';
+        attentionRowsBody.appendChild(tr);
+        return;
+      }
+
+      attentionSummary.textContent = [
+        `generated: ${attention.generatedAt || "n/a"}`,
+        `source_rows: ${attention.sourceRowCount || 0}`,
+        `actions: ${attention.actionCount || 0}`,
+        `affected_groups: ${attention.affectedGroups || 0}`,
+      ].join("\n");
+
+      actions.slice(0, 20).forEach((action) => {
+        const tr = document.createElement("tr");
+        const reasons = Array.isArray(action.reasonCodes)
+          ? action.reasonCodes.map(reasonLabel).join("; ")
+          : "n/a";
+        tr.innerHTML = `
+          <td>${sanitize(action.priorityScore)}</td>
+          <td>${sanitize(action.groupId || `row-${Number(action.rowIndex || 0) + 1}`)}</td>
+          <td>${sanitize(reasons)}</td>
+          <td>${sanitize(action.prompt || "")}</td>
+          <td><button class="btn" type="button" data-focus-row="${sanitize(action.rowIndex)}" style="padding:4px 7px; font-size:0.74rem;">Focus Row</button></td>
+        `;
+        attentionRowsBody.appendChild(tr);
+      });
+
+      attentionRowsBody.querySelectorAll("button[data-focus-row]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const rowIndex = Number(btn.getAttribute("data-focus-row") || "0");
+          focusWorkflowRow(rowIndex);
+        });
+      });
+    }
+
+    async function loadAttentionLatest() {
+      try {
+        const res = await apiGet("/api/attention/latest?limit=16");
+        const data = await res.json();
+        renderAttention(data.attention || null);
+      } catch {
+        attentionSummary.textContent = "Could not load attention prompts.";
+      }
+    }
+
+    function summarizeWorkflowOutput(header, payload) {
+      const lines = [header];
+      if (!payload) return lines.join("\n");
+      if (payload.shortDescription) lines.push(`short_goal: ${payload.shortDescription}`);
+      if (payload.outputPath) lines.push(`output: ${payload.outputPath}`);
+      if (payload.reportPath) lines.push(`report: ${payload.reportPath}`);
+      if (payload.mode) lines.push(`mode: ${payload.mode}`);
+      if (payload.stdout) lines.push(`stdout: ${payload.stdout}`);
+      if (payload.stderr) lines.push(`stderr: ${payload.stderr}`);
+      if (payload.error) lines.push(`error: ${payload.error}`);
+      return lines.join("\n");
+    }
+
+    async function loadFailedInbox() {
+      try {
+        const res = await apiGet("/api/inbox/failed");
+        const data = await res.json();
+        failedInboxItems = Array.isArray(data.items) ? data.items : [];
+      } catch {
+        failedInboxItems = [];
+      }
+      renderFailedInbox();
+    }
+
+    function renderFailedInbox() {
+      inboxRowsBody.innerHTML = "";
+      if (!failedInboxItems.length) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = '<td colspan="5">No failed tasks in inbox.</td>';
+        inboxRowsBody.appendChild(tr);
+        return;
+      }
+
+      for (const item of failedInboxItems.slice(0, 30)) {
+        const tr = document.createElement("tr");
+        const id = sanitize(item.id || "");
+        const source = sanitize(item.source || "");
+        const stage = sanitize(item.stage || "");
+        const message = sanitize((item.message || "").slice(0, 180));
+
+        tr.innerHTML = `
+          <td>${source}</td>
+          <td>${id}</td>
+          <td>${stage}</td>
+          <td>${message}</td>
+          <td>
+            <button class="btn" type="button" data-retry="${id}" data-source="${source}" style="padding:4px 7px; font-size:0.74rem;">Retry</button>
+            <button class="btn" type="button" data-refine="${id}" data-source="${source}" style="padding:4px 7px; font-size:0.74rem;">Refine</button>
+          </td>
+        `;
+        inboxRowsBody.appendChild(tr);
+      }
+
+      inboxRowsBody.querySelectorAll("button[data-retry]").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          const id = btn.getAttribute("data-retry") || "";
+          const source = btn.getAttribute("data-source") || "";
+          await retryInboxItem(source, id);
+        });
+      });
+
+      inboxRowsBody.querySelectorAll("button[data-refine]").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          const id = btn.getAttribute("data-refine") || "";
+          const source = btn.getAttribute("data-source") || "";
+          await refineInboxItem(source, id);
+        });
+      });
+    }
+
+    async function retryInboxItem(source, id) {
+      if (source !== "job") {
+        workflowStatus.textContent = "Only job-source inbox items support retry.";
+        return;
+      }
+
+      try {
+        const res = await apiPost("/api/inbox/retry", { source, id });
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+          throw new Error(data.error || "Retry request failed.");
+        }
+        workflowStatus.textContent = `Retry queued: ${data.job.id}`;
+        activeJobId = data.job.id;
+        await loadJobsLatest();
+        await loadFailedInbox();
+      } catch (error) {
+        workflowStatus.textContent = `Retry failed: ${String(error.message || error)}`;
+      }
+    }
+
+    async function refineInboxItem(source, id) {
+      if (source !== "recovery") {
+        workflowStatus.textContent = "Refine is available for recovery-source items.";
+        return;
+      }
+
+      try {
+        const res = await apiPost("/api/inbox/refine", { runId: id });
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+          throw new Error(data.error || "Refine request failed.");
+        }
+        renderWorkflowRows(data.rows || []);
+        workflowStatus.textContent = `Loaded recovery ${id} for refinement (${(data.rows || []).length} rows).`;
+        await loadWorkflowLatest();
+      } catch (error) {
+        workflowStatus.textContent = `Refine failed: ${String(error.message || error)}`;
+      }
+    }
+
+    async function loadWorkflowLatest() {
+      try {
+        const res = await apiGet("/api/workflow/latest");
+        const data = await res.json();
+        latestWorkflow = data.workflow || null;
+        const rows = latestWorkflow && Array.isArray(latestWorkflow.latestRows)
+          ? latestWorkflow.latestRows
+          : [];
+        renderWorkflowRows(rows);
+
+        const importState = latestWorkflow && latestWorkflow.lastImport ? latestWorkflow.lastImport : null;
+        const pushState = latestWorkflow && latestWorkflow.lastPush ? latestWorkflow.lastPush : null;
+        const statusParts = [
+          `live_enabled: ${Boolean(data.liveEnabled)}`,
+          importState ? `last_import: ${importState.ok ? "ok" : "fail"} (${importState.timestamp || "n/a"})` : "last_import: n/a",
+          pushState ? `last_push: ${pushState.ok ? "ok" : "fail"} (${pushState.timestamp || "n/a"})` : "last_push: n/a",
+          `rows: ${rows.length}`,
+        ];
+        if (importState && importState.shortDescription) {
+          statusParts.push(`short_goal: ${importState.shortDescription}`);
+        }
+        workflowStatus.textContent = statusParts.join("\n");
+      } catch {
+        workflowStatus.textContent = "Could not load workflow latest state.";
+      }
+    }
+
+    function renderJobsList(jobs) {
+      const items = Array.isArray(jobs) ? jobs : [];
+      if (!items.length) {
+        workflowJobs.textContent = "No background jobs yet.";
+        return;
+      }
+
+      workflowJobs.textContent = items.slice(0, 8)
+        .map((job, idx) => {
+          const result = job.result || {};
+          const error = job.error || result.error || "";
+          return `${idx + 1}. ${job.id}\n   type=${job.type} status=${job.status} duration=${job.durationMs || 0}ms\n   created=${job.createdAt || "n/a"}\n   error=${error || "none"}`;
+        })
+        .join("\n\n");
+    }
+
+    async function loadJobsLatest() {
+      try {
+        const res = await apiGet("/api/jobs/latest");
+        const data = await res.json();
+        renderJobsList(data.jobs || []);
+      } catch {
+        workflowJobs.textContent = "Could not load jobs.";
+      }
+    }
+
+    async function waitForJob(jobId, timeoutMs = 180000) {
+      const started = Date.now();
+      while (Date.now() - started < timeoutMs) {
+        const res = await apiGet(`/api/jobs/${encodeURIComponent(jobId)}`);
+        const data = await res.json();
+        if (!data.ok || !data.job) {
+          throw new Error(data.error || "Job lookup failed.");
+        }
+
+        const job = data.job;
+        workflowStatus.textContent = `Job ${job.id} is ${job.status} (${job.type}).`;
+        if (job.status === "succeeded" || job.status === "failed") {
+          return job;
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+
+      throw new Error(`Job timeout for ${jobId}`);
+    }
+
+    async function startWorkflowJob(type, payload) {
+      const res = await apiPost("/api/jobs/start", { type, payload });
+      const data = await res.json();
+      if (!res.ok || !data.ok || !data.job) {
+        throw new Error(data.error || "Could not start background job.");
+      }
+      return data.job;
+    }
+
+    async function runWorkflowImport(origin = "advanced") {
+      const activeCsv = getSelectedCsvFile();
+      if (!activeCsv) {
+        workflowStatus.textContent = "Select a CSV file before running generate/import.";
+        quickStatus.textContent = "Drop or choose a CSV first, then click Generate Listing Draft.";
+        return;
+      }
+
+      workflowImportBtn.disabled = true;
+      quickGenerateBtn.disabled = true;
+      try {
+        const csvContent = await activeCsv.text();
+        const shortDescription = String(quickDescriptionInput.value || "").trim().slice(0, 240);
+        const payload = {
+          csvContent,
+          imageRoot: workflowImageRoot.value || "assets/products",
+          shortDescription,
+        };
+
+        if (workflowAsyncToggle.checked) {
+          const job = await startWorkflowJob("workflow-import", payload);
+          activeJobId = job.id;
+          workflowStatus.textContent = `Started background import job ${job.id}.`;
+          const completed = await waitForJob(job.id);
+          const out = completed.result || {};
+          renderWorkflowRows(out.rows || []);
+          workflowStatus.textContent = summarizeWorkflowOutput(
+            completed.status === "succeeded" ? "Generate/import completed (background)." : "Generate/import failed (background).",
+            out,
+          );
+        } else {
+          const res = await apiPost("/api/workflow/import", payload);
+          const data = await res.json();
+          renderWorkflowRows(data.rows || []);
+          workflowStatus.textContent = summarizeWorkflowOutput(
+            data.ok ? "Generate/import completed." : "Generate/import failed.",
+            data,
+          );
+        }
+
+        quickStatus.textContent = origin === "quick"
+          ? "Draft generated. Review rows below, then push dry before live."
+          : "Import completed. Quick path is ready for your next file.";
+
+        await loadWorkflowLatest();
+        await loadJobsLatest();
+        await loadFailedInbox();
+        await loadAttentionLatest();
+      } catch (error) {
+        workflowStatus.textContent = `Generate/import error: ${String(error && error.message ? error.message : error)}`;
+        quickStatus.textContent = `Could not generate draft: ${String(error && error.message ? error.message : error)}`;
+      } finally {
+        workflowImportBtn.disabled = false;
+        quickGenerateBtn.disabled = false;
+      }
+    }
+
+    async function runWorkflowPush(mode) {
+      const liveConfirm = mode === "live" ? String(workflowLiveConfirm.value || "").trim() : "";
+      if (mode === "live" && liveConfirm !== "LIVE") {
+        workflowStatus.textContent = "Live push requires confirmation text LIVE.";
+        return;
+      }
+
+      workflowPushDryBtn.disabled = true;
+      workflowPushLiveBtn.disabled = true;
+      try {
+        const payload = {
+          mode,
+          outputPath: latestWorkflow && latestWorkflow.latestOutputPath ? latestWorkflow.latestOutputPath : "",
+          liveConfirm,
+        };
+
+        if (workflowAsyncToggle.checked) {
+          const job = await startWorkflowJob("workflow-push", payload);
+          activeJobId = job.id;
+          workflowStatus.textContent = `Started background push job ${job.id}.`;
+          const completed = await waitForJob(job.id);
+          const out = completed.result || {};
+          workflowStatus.textContent = summarizeWorkflowOutput(
+            completed.status === "succeeded" ? `Push ${mode.toUpperCase()} completed (background).` : `Push ${mode.toUpperCase()} failed (background).`,
+            out,
+          );
+        } else {
+          const res = await apiPost("/api/workflow/push", payload);
+          const data = await res.json();
+          workflowStatus.textContent = summarizeWorkflowOutput(
+            data.ok ? `Push ${mode.toUpperCase()} completed.` : `Push ${mode.toUpperCase()} failed.`,
+            data,
+          );
+        }
+
+        await loadWorkflowLatest();
+        await loadJobsLatest();
+        await loadFailedInbox();
+        await loadAttentionLatest();
+      } catch (error) {
+        workflowStatus.textContent = `Push ${mode.toUpperCase()} error: ${String(error && error.message ? error.message : error)}`;
+      } finally {
+        workflowPushDryBtn.disabled = false;
+        workflowPushLiveBtn.disabled = false;
+      }
+    }
+
+    if (params.host && params.shop && params.apiKey) {
+      try {
+        createApp({
+          apiKey: params.apiKey,
+          host: params.host,
+          forceRedirect: true,
+        });
+        bridgeState.textContent = "App Bridge: initialized";
+        bridgeStatus.textContent = "Initialized";
+        appBanner.innerHTML = "<strong>App Bridge connected.</strong><span>Embedded context accepted host/shop/apiKey and initialized successfully.</span>";
+      } catch (error) {
+        bridgeState.textContent = "App Bridge: error";
+        bridgeStatus.textContent = "Initialization failed";
+        writeDebug([
+          "App Bridge initialization failed.",
+          String(error && error.message ? error.message : error),
+        ]);
+      }
+    } else {
+      bridgeState.textContent = "App Bridge: missing params";
+      bridgeStatus.textContent = "Waiting for host/shop/apiKey";
+      writeDebug([
+        "Missing required query parameters for App Bridge.",
+        "Expected: ?host=<base64-host>&shop=<store.myshopify.com>&apiKey=<client-id>",
+      ]);
+    }
+
+    testContextBtn.addEventListener("click", async () => {
+      const res = await apiGet(`/api/context?host=${encodeURIComponent(params.host)}&shop=${encodeURIComponent(params.shop)}`);
+      const data = await res.json();
+      writeDebug([
+        "Context API response:",
+        JSON.stringify(data, null, 2),
+      ]);
+    });
+
+    copyEmbedUrlBtn.addEventListener("click", async () => {
+      const sample = `${window.location.origin}/?host=BASE64_HOST&shop=your-store.myshopify.com&apiKey=YOUR_CLIENT_ID`;
+      try {
+        await navigator.clipboard.writeText(sample);
+        writeDebug(["Sample embedded URL copied:", sample]);
+      } catch {
+        writeDebug(["Could not copy to clipboard. Use this sample URL:", sample]);
+      }
+    });
+
+    startOAuthBtn.addEventListener("click", () => {
+      const shop = String(shopDomainInput.value || "").trim();
+      if (!shop) {
+        writeDebug(["Provide a shop domain first (example: your-store.myshopify.com)."]);
+        quickStatus.textContent = "Add your shop domain before connecting OAuth.";
+        return;
+      }
+      const next = `/auth/start?shop=${encodeURIComponent(shop)}`;
+      window.location.assign(next);
+    });
+
+    quickDropzone.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      quickDropzone.classList.add("dragging");
+    });
+
+    quickDropzone.addEventListener("dragleave", () => {
+      quickDropzone.classList.remove("dragging");
+    });
+
+    quickDropzone.addEventListener("drop", (event) => {
+      event.preventDefault();
+      quickDropzone.classList.remove("dragging");
+      const files = event.dataTransfer && event.dataTransfer.files ? event.dataTransfer.files : null;
+      const file = files && files[0] ? files[0] : null;
+      if (!file) return;
+      if (!String(file.name || "").toLowerCase().endsWith(".csv")) {
+        quickStatus.textContent = "Only CSV files are supported for quick generate.";
+        return;
+      }
+      setSelectedCsvFile(file, "drop zone");
+      quickStatus.textContent = "CSV loaded from drop zone. Add optional goal text, then generate.";
+    });
+
+    quickDropzone.addEventListener("click", () => {
+      quickCsvInput.click();
+    });
+
+    quickDropzone.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        quickCsvInput.click();
+      }
+    });
+
+    quickCsvInput.addEventListener("change", () => {
+      const file = quickCsvInput.files && quickCsvInput.files[0] ? quickCsvInput.files[0] : null;
+      setSelectedCsvFile(file, "quick picker");
+      if (file) {
+        quickStatus.textContent = "CSV selected. Click Generate Listing Draft when ready.";
+      }
+    });
+
+    workflowCsvFile.addEventListener("change", () => {
+      const file = workflowCsvFile.files && workflowCsvFile.files[0] ? workflowCsvFile.files[0] : null;
+      if (file) {
+        setSelectedCsvFile(file, "advanced picker");
+      }
+    });
+
+    quickGenerateBtn.addEventListener("click", () => runWorkflowImport("quick"));
+    quickConnectionBtn.addEventListener("click", checkQuickConnection);
+    quickDiagnosticsBtn.addEventListener("click", async () => {
+      await exportDiagnosticsBundle();
+      quickStatus.textContent = "Support diagnostics bundle exported. You can keep working without leaving this page.";
+    });
+
+    refreshTokensBtn.addEventListener("click", loadTokenSummaries);
+    runBootstrapBtn.addEventListener("click", async () => {
+      try {
+        const res = await apiPost("/api/bootstrap/run", { trigger: "manual-ui" });
+        const data = await res.json();
+        writeDebug([
+          "Bootstrap requested:",
+          JSON.stringify({ started: data.started, running: data.running }, null, 2),
+        ]);
+        await loadBootstrapState();
+      } catch {
+        writeDebug(["Failed to request bootstrap run."]);
+      }
+    });
+    refreshBootstrapBtn.addEventListener("click", loadBootstrapState);
+    onboardingChecksBtn.addEventListener("click", () => runOnboarding("checks"));
+    onboardingBootstrapBtn.addEventListener("click", () => runOnboarding("bootstrap"));
+    onboardingSampleBtn.addEventListener("click", () => runOnboarding("sample"));
+    onboardingFullBtn.addEventListener("click", () => runOnboarding("full"));
+    onboardingRefreshBtn.addEventListener("click", loadOnboardingLatest);
+    diagnosticsExportBtn.addEventListener("click", exportDiagnosticsBundle);
+    diagnosticsRefreshBtn.addEventListener("click", loadDiagnosticsLatest);
+    workflowImportBtn.addEventListener("click", () => runWorkflowImport("advanced"));
+    workflowPushDryBtn.addEventListener("click", () => runWorkflowPush("dry"));
+    workflowPushLiveBtn.addEventListener("click", () => runWorkflowPush("live"));
+    workflowRefreshBtn.addEventListener("click", loadWorkflowLatest);
+    inboxRefreshBtn.addEventListener("click", loadFailedInbox);
+    attentionRefreshBtn.addEventListener("click", loadAttentionLatest);
+
+    loadAuthConfig();
+    loadTokenSummaries();
+    loadBootstrapState();
+    loadOnboardingLatest();
+    loadDiagnosticsLatest();
+    loadWorkflowLatest();
+    loadJobsLatest();
+    loadFailedInbox();
+    loadAttentionLatest();
+    setInterval(loadBootstrapState, 4000);
+    setInterval(() => {
+      loadOnboardingLatest();
+      loadDiagnosticsLatest();
+      loadJobsLatest();
+      loadFailedInbox();
+      loadAttentionLatest();
+      if (activeJobId) {
+        apiGet(`/api/jobs/${encodeURIComponent(activeJobId)}`)
+          .then((res) => res.json())
+          .then((data) => {
+            if (!data.ok || !data.job) return;
+            if (data.job.status === "succeeded" || data.job.status === "failed") {
+              activeJobId = "";
+            }
+          })
+          .catch(() => {});
+      }
+    }, 3000);
+  </script>
+</body>
+</html>

@@ -1,0 +1,122 @@
+[
+  {
+    "title": "12V Hanging Light Sample",
+    "handle": "12v-hanging-light-sample",
+    "descriptionHtml": "<p>Built for long-term performance and reliable everyday use. Ironsmith Lighting Products.</p>",
+    "vendor": "Ironsmith Lighting Products",
+    "productType": "12V Hanging Light",
+    "status": "DRAFT",
+    "tags": [
+      "ironsmith-lighting-products",
+      "brand-ironsmith",
+      "ai-generated-draft",
+      "import-csv",
+      "group-sample-group-001",
+      "mapped-product-type",
+      "needs-spec-review",
+      "needs-image-review",
+      "needs-copy-review",
+      "needs-ops-review"
+    ],
+    "seo": {
+      "title": "12V Hanging Light Sample",
+      "description": "Built for long-term performance and reliable everyday use. Ironsmith Lighting Products."
+    },
+    "options": [
+      "Pack Size"
+    ],
+    "variants": [
+      {
+        "optionValues": [
+          "1-Pack"
+        ],
+        "price": "",
+        "sku": ""
+      }
+    ],
+    "metafields": [
+      {
+        "namespace": "shopify",
+        "key": "material",
+        "type": "list.metaobject_reference",
+        "value": "[\"solid brass\"]"
+      },
+      {
+        "namespace": "custom",
+        "key": "wattage",
+        "type": "number_integer",
+        "value": "5"
+      }
+    ],
+    "source": {
+      "groupId": "sample-group-001",
+      "imageFolder": "",
+      "imageCount": 0,
+      "heroImage": "",
+      "imageConfidence": 0,
+      "imageCandidates": [],
+      "imageAttention": [
+        {
+          "code": "image_folder_missing",
+          "severity": "error",
+          "file": "",
+          "message": "Image folder is missing for this listing.",
+          "action": "Provide image_folder so product images can be evaluated."
+        }
+      ],
+      "notes": "Use option*_values + sku_values/price_values/inventory_values to create grouped variants in one listing row. Use metafields_json for product-type specific fields.",
+      "confidence": 22,
+      "issues": [
+        "Missing SKU in row 2",
+        "Missing or invalid price in row 2",
+        "Missing specs: sku, price, base_type, wattage, voltage, lumen_output",
+        "Missing image_folder",
+        "Image attention: Image folder is missing for this listing."
+      ],
+      "metafieldValidationIssues": [],
+      "requiredFixes": [
+        "Add SKU for each variant",
+        "Add price for each variant",
+        "Add bulb base type (for example GU5.3, E26)",
+        "Add wattage",
+        "Add voltage",
+        "Add lumen output",
+        "Add at least one product image in the image_folder",
+        "Provide image_folder so product images can be evaluated."
+      ],
+      "mappedDynamicMetafields": [
+        "shopify.material",
+        "custom.wattage"
+      ],
+      "inferredFields": [],
+      "mappedProductType": {
+        "value": "12V Hanging Light",
+        "matchedExisting": true,
+        "createdNew": false,
+        "source": "12V Hanging Light"
+      },
+      "matchedCollections": [],
+      "autoAppliedTags": [],
+      "categoryProfile": "12V Hanging Light",
+      "readyToPublish": false,
+      "publishBlockers": [
+        "sku",
+        "price",
+        "base_type",
+        "wattage",
+        "voltage",
+        "lumen_output",
+        "hero_image"
+      ],
+      "useBrandProfile": true,
+      "brandProfile": "ironsmith-default",
+      "templateKey": "",
+      "appliedFallbacks": [
+        "vendor:brand",
+        "description:brand",
+        "description:brand-mention",
+        "tags:brand"
+      ]
+    }
+  }
+]

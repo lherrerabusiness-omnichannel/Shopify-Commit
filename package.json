@@ -1,0 +1,33 @@
+{
+  "name": "shopify-commit",
+  "version": "1.0.0",
+  "description": "Push Shopify products from JSON with dry-run and live modes",
+  "main": "index.js",
+  "scripts": {
+    "auth:token": "node scripts/get-access-token.js",
+    "auth:rotate": "node scripts/rotate-auth-store-encryption.js",
+    "sync:metafields": "node scripts/sync-shopify-metafields.js --output data/shopify-metafields.product.json",
+    "db:build": "node scripts/build-store-db.js --schema data/shopify-metafields.product.json --rules config/store-rules.json --output data/shopify-store-db.json",
+    "template:single": "node scripts/generate-single-intake-template.js --db data/shopify-store-db.json --output data/intake-single/products-intake.csv",
+    "ui:start": "node scripts/ui-shell-server.js",
+    "embedded:start": "node scripts/embedded-app-server.js",
+    "app:init": "npm run sync:metafields && npm run db:build && npm run template:single",
+    "workbook:generate": "node scripts/generate-intake-workbook-pack.js --schema data/shopify-metafields.product.json --rules config/store-rules.json --brand-sheet config/always-use-brand.csv --template-sheet config/always-use-templates.csv --out-dir data/intake-workbook",
+    "workbook:generate:starter": "node scripts/generate-intake-workbook-pack.js --schema data/shopify-metafields.product.json --rules config/store-rules.json --brand-sheet config/always-use-brand.csv --template-sheet config/always-use-templates.csv --out-dir data/intake-workbook --starter-types-only",
+    "import:csv": "node scripts/import-products-csv.js --input data/products-import.csv --output data/products.generated.json --report reports/review-report.csv",
+    "import:csv:images": "node scripts/import-products-csv.js --input data/products-import.csv --output data/products.generated.json --report reports/review-report.csv --image-root assets/products",
+    "import:csv:images:schema": "node scripts/import-products-csv.js --input data/products-import.csv --output data/products.generated.json --report reports/review-report.csv --image-root assets/products --schema data/shopify-metafields.product.json",
+    "push:dry": "node scripts/push-products.js --dry-run --file data/products.json",
+    "push:live": "node scripts/push-products.js --live --file data/products.json",
+    "push:generated:dry": "node scripts/push-products.js --dry-run --file data/products.generated.json",
+    "push:generated:live": "node scripts/push-products.js --live --file data/products.generated.json"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "csv-parse": "^6.2.1",
+    "dotenv": "^17.4.2"
+  }
+}

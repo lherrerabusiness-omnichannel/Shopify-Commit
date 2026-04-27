@@ -1,0 +1,32 @@
+{
+  "runId": "run-2026-04-27T05-31-58-716Z-utm859",
+  "status": "completed",
+  "stage": "complete",
+  "timestamp": "2026-04-27T05:31:58.797Z",
+  "error": "",
+  "args": {
+    "input": "data/shops/ironsmith-lighting_myshopify_com/ui-session/upload.embedded.2026-04-27T05-31-57-315Z.csv",
+    "output": "data/shops/ironsmith-lighting_myshopify_com/ui-session/products.embedded.2026-04-27T05-31-57-317Z.json",
+    "report": "reports/shops/ironsmith-lighting_myshopify_com/review-report.embedded.2026-04-27T05-31-57-317Z.csv",
+    "imageRoot": "assets/products",
+    "schema": "data/shopify-metafields.product.json",
+    "rules": "config/store-rules.json",
+    "brandSheet": "config/always-use-brand.csv",
+    "templateSheet": "config/always-use-templates.csv",
+    "storeDb": "data/shopify-store-db.json",
+    "recoveryDir": "data/shops/ironsmith-lighting_myshopify_com/recovery"
+  },
+  "summary": {
+    "rowCount": 4,
+    "generatedProducts": 3,
+    "reviewRows": 3,
+    "outputPath": "data/shops/ironsmith-lighting_myshopify_com/ui-session/products.embedded.2026-04-27T05-31-57-317Z.json",
+    "reportPath": "reports/shops/ironsmith-lighting_myshopify_com/review-report.embedded.2026-04-27T05-31-57-317Z.csv"
+  },
+  "artifacts": {
+    "rowsSnapshot": "data/shops/ironsmith-lighting_myshopify_com/recovery/run-2026-04-27T05-31-58-716Z-utm859/rows.input.snapshot.json",
+    "productsPartial": "data/shops/ironsmith-lighting_myshopify_com/recovery/run-2026-04-27T05-31-58-716Z-utm859/products.partial.json",
+    "reviewPartial": "data/shops/ironsmith-lighting_myshopify_com/recovery/run-2026-04-27T05-31-58-716Z-utm859/review.partial.csv"
+  },
+  "warnings": []
+}

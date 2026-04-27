@@ -1,0 +1,32 @@
+{
+  "runId": "run-2026-04-27T02-25-23-394Z-7wg6yw",
+  "status": "completed",
+  "stage": "complete",
+  "timestamp": "2026-04-27T02:25:23.418Z",
+  "error": "",
+  "args": {
+    "input": "data/intake-single/products-intake.csv",
+    "output": "data/products.single.generated.json",
+    "report": "reports/review-report.single.csv",
+    "imageRoot": "assets/products",
+    "schema": "data/shopify-metafields.product.json",
+    "rules": "config/store-rules.json",
+    "brandSheet": "config/always-use-brand.csv",
+    "templateSheet": "config/always-use-templates.csv",
+    "storeDb": "data/shopify-store-db.json",
+    "recoveryDir": "data/recovery"
+  },
+  "summary": {
+    "rowCount": 1,
+    "generatedProducts": 1,
+    "reviewRows": 1,
+    "outputPath": "data/products.single.generated.json",
+    "reportPath": "reports/review-report.single.csv"
+  },
+  "artifacts": {
+    "rowsSnapshot": "data/recovery/run-2026-04-27T02-25-23-394Z-7wg6yw/rows.input.snapshot.json",
+    "productsPartial": "data/recovery/run-2026-04-27T02-25-23-394Z-7wg6yw/products.partial.json",
+    "reviewPartial": "data/recovery/run-2026-04-27T02-25-23-394Z-7wg6yw/review.partial.csv"
+  },
+  "warnings": []
+}

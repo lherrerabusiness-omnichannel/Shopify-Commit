@@ -1,0 +1,93 @@
+{
+  "productTypeAliases": [
+    {
+      "matchAny": ["well light", "in-ground", "landscape", "half moon"],
+      "target": "Well Light Fixture"
+    },
+    {
+      "matchAny": ["mr16", "a19", "b11", "bulb", "candle"],
+      "target": "Light Bulb"
+    }
+  ],
+  "categoryProfiles": {
+    "Well Light Fixture": {
+      "requiredFields": [
+        "sku",
+        "price",
+        "base_type",
+        "wattage",
+        "voltage",
+        "lumen_output",
+        "color_temp"
+      ],
+      "requiredTags": [
+        "12v"
+      ],
+      "recommendedImageConfidence": 60
+    },
+    "Light Bulb": {
+      "requiredFields": [
+        "sku",
+        "price",
+        "base_type",
+        "wattage",
+        "voltage",
+        "lumen_output",
+        "color_temp"
+      ],
+      "requiredTags": [],
+      "recommendedImageConfidence": 60
+    },
+    "Landscape Lighting": {
+      "requiredFields": [
+        "sku",
+        "price",
+        "base_type",
+        "wattage",
+        "voltage",
+        "lumen_output",
+        "color_temp"
+      ],
+      "requiredTags": [
+        "12v"
+      ],
+      "recommendedImageConfidence": 60
+    },
+    "Light Bulbs": {
+      "requiredFields": [
+        "sku",
+        "price",
+        "base_type",
+        "wattage",
+        "voltage",
+        "lumen_output",
+        "color_temp"
+      ],
+      "requiredTags": [],
+      "recommendedImageConfidence": 60
+    },
+    "default": {
+      "requiredFields": [
+        "sku",
+        "price",
+        "base_type",
+        "wattage",
+        "voltage",
+        "lumen_output"
+      ],
+      "requiredTags": [],
+      "recommendedImageConfidence": 60
+    }
+  },
+  "publishGate": {
+    "requireMappedProductType": true,
+    "requireCollectionMatch": false,
+    "minimumImageConfidence": 60,
+    "imageValidation": {
+      "minBytes": 30720,
+      "maxBytes": 10485760,
+      "minWidth": 800,
+      "minHeight": 800
+    }
+  }
+}

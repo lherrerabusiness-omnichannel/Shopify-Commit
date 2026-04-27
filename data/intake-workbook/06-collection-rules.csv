@@ -1,0 +1,95 @@
+title,handle,disjunctive,rule_count,rule_summary,tag_rules
+Well Light Fixtures,well-light-fixtures,yes,1,TAG EQUALS Well Light,Well Light
+Hardscape Pavers,hardscape-pavers,yes,2,TAG EQUALS Hardscape | TAG EQUALS Paver,Hardscape|Paver
+Hanging Lights,hanging-lights,yes,3,TAG EQUALS hanging | TAG EQUALS hanging fixture | TAG EQUALS hanging lights,hanging|hanging fixture|hanging lights
+Incandescent Bulbs,incandescent-bulbs,yes,2,TAG EQUALS incandescent | TAG EQUALS incandescent bulb,incandescent|incandescent bulb
+Halogen Bulbs,halogen-bulbs,yes,2,TAG EQUALS Halogen | TAG EQUALS Halogen bulbs,Halogen|Halogen bulbs
+LED Bulbs,led-bulbs,yes,2,TAG EQUALS LED Bulb | TAG EQUALS LED Bulbs,LED Bulb|LED Bulbs
+Fluorescent Bulbs,fluorescent-bulbs,yes,4,TAG EQUALS fluorescent | TAG EQUALS cfl | TAG EQUALS compact fluorescent | TAG EQUALS fluorescent bulb,fluorescent|cfl|compact fluorescent|fluorescent bulb
+Lighting Spikes and Fixture Mounting Bases,spikes,yes,4,TAG EQUALS spike | TAG EQUALS spikes | TAG EQUALS ground stake | TAG EQUALS stake,spike|spikes|ground stake|stake
+Timers and Automation Controls,timers-and-automation-controls,yes,4,TAG EQUALS timer | TAG EQUALS photocell | TAG EQUALS switch | TAG EQUALS photoelectric,timer|photocell|switch|photoelectric
+Power Supplies,transformers-and-power-supplies,yes,5,TAG EQUALS transformer | TAG EQUALS driver | TAG EQUALS step down | TAG EQUALS power supply | TAG EQUALS breaker,transformer|driver|step down|power supply|breaker
+Light Bulbs,light-bulbs,yes,3,TAG EQUALS light bulb | TAG EQUALS light bulbs | TAG EQUALS bulb,light bulb|light bulbs|bulb
+Transformers,transformers,no,2,TAG EQUALS Transformer | TAG EQUALS halogen transformer,Transformer|halogen transformer
+Premium LED Drivers | Constant Current & Dimmable | USA Stock,led-driver,yes,2,TAG EQUALS LED Driver | TAG EQUALS Driver,LED Driver|Driver
+Indoor/Outdoor Transformer,indoor-outdoor-transformer,no,4,TAG EQUALS indoor/outdoor transformer | TAG EQUALS large transformer | TAG EQUALS outdoor transformer | TAG EQUALS outdoor,indoor/outdoor transformer|large transformer|outdoor transformer|outdoor
+High Power Bulbs,high-power-bulbs,yes,6,TAG EQUALS Mercury Vapor | TAG EQUALS Metal Halide | TAG EQUALS MV | TAG EQUALS High Pressure Sodium | TAG EQUALS HPS | TAG EQUALS MH,Mercury Vapor|Metal Halide|MV|High Pressure Sodium|HPS|MH
+Automotive/Machine Bulb,automotive-machine-bulb,yes,8,TAG EQUALS automotive | TAG EQUALS microwave | TAG EQUALS stove | TAG EQUALS tractor | TAG EQUALS headlight | TAG EQUALS turn signal | TAG EQUALS marker light | TAG EQUALS flasher,automotive|microwave|stove|tractor|headlight|turn signal|marker light|flasher
+Illuminate Your Space with Ironsmith's Smart Lighting Collection,smart-products,yes,6,TAG EQUALS Smart | TAG EQUALS alexa | TAG EQUALS google home | TAG EQUALS smart home | TAG EQUALS app | TAG EQUALS wireless,Smart|alexa|google home|smart home|app|wireless
+Light Fixtures,fixtures,yes,2,TAG EQUALS fixture | TAG EQUALS fixtures,fixture|fixtures
+Deck and Patio Lights,deck-and-patio-lights,yes,2,TAG EQUALS Deck Light | TAG EQUALS Patio,Deck Light|Patio
+Ballast and Ignitors,ballast-and-ignitors,yes,3,TAG EQUALS ballast | TAG EQUALS ignitor | TAG EQUALS starter,ballast|ignitor|starter
+Dimmers,dimmers,yes,3,TAG EQUALS dimmer | TAG EQUALS dimmers | TAG EQUALS touch dimmer,dimmer|dimmers|touch dimmer
+Honeycomb Louvers,honeycomb-louvers,yes,2,TAG EQUALS honeycomb | TAG EQUALS honeycomb louver,honeycomb|honeycomb louver
+Bundle Builder Products,bundle-builder-products,no,1,TYPE EQUALS Custom Bundle,
+Solar Light Fixtures,solar-light-fixtures,yes,4,TAG EQUALS Solar Light | TAG EQUALS solar | TAG EQUALS solar fixture | TAG EQUALS solar powered fixture,Solar Light|solar|solar fixture|solar powered fixture
+Wire Connector,wire-connector,yes,5,TAG EQUALS Wire Connector | TAG EQUALS wire nut | TAG EQUALS wirenut | TAG EQUALS twist on connector | TAG EQUALS connector,Wire Connector|wire nut|wirenut|twist on connector|connector
+Accessories,accessories,yes,1,TAG EQUALS accessory,accessory
+Light Fixtures and accessories,light-fixtures-and-accessories,yes,2,TAG EQUALS light fixture | TAG EQUALS accessory,light fixture|accessory
+Spot Light Fixtures,spot-light-fixtures,no,2,TAG EQUALS spot light | TAG EQUALS light fixture,spot light|light fixture
+Deck Light,deck-light,no,2,TAG EQUALS deck Light | TAG EQUALS light fixture,deck Light|light fixture
+Step Walk Way Lights,step-walk-way-lights,yes,1,TAG EQUALS Step Light,Step Light
+Ceiling Surface Mount Fixtures,ceiling-surface-mount-fixtures,yes,2,TAG EQUALS ceiling fixture | TAG EQUALS Ceiling Light,ceiling fixture|Ceiling Light
+Wall Mount Fixtures,wall-mount-fixtures,yes,1,TAG EQUALS Wall Mount Fixture,Wall Mount Fixture
+Landscape Lighting Transformer,landscape-lighting-transformer,no,2,TAG EQUALS Large Transformer | TAG EQUALS Transformer,Large Transformer|Transformer
+Path Light Fixtures | Low Voltage Outdoor Pathway Lighting,path-light-fixtures,yes,2,TAG EQUALS path light fixtures | TAG EQUALS Step Light,path light fixtures|Step Light
+Underwater Light Fixtures,underwater-light-fixtures,no,2,TAG EQUALS Fixture | TAG EQUALS Underwater,Fixture|Underwater
+Brass Light Fixtures,brass-light-fixtures,no,2,TAG EQUALS Brass | TAG EQUALS fixture,Brass|fixture
+Smart Bulb and Underwater lights,smart-bulb-and-underwater-lights,yes,2,TAG EQUALS smart LED | TAG EQUALS Underwater,smart LED|Underwater
+MR16 Well Lights,mr16-well-lights,no,1,TAG EQUALS In-ground Fixture,In-ground Fixture
+Breakers,breakers,no,1,TAG EQUALS Breaker,Breaker
+Ceiling Fan Accessories,ceiling-fan-accessories,no,1,TAG EQUALS ceiling fan accessory,ceiling fan accessory
+LED Drivers | Terminal Connection,led-drivers-terminal-connection,no,2,TAG EQUALS Terminal Connection | TAG EQUALS LED Driver,Terminal Connection|LED Driver
+Table Lamp,table-lamp,yes,1,TAG EQUALS Table Lamp,Table Lamp
+Strip Light-Indoor,undercabinet-strip-light,no,1,TAG EQUALS strip light,strip light
+Flashlights,flashlights,yes,1,TAG EQUALS flashlight,flashlight
+LED Undercabinet Fixture,led-undercabinet-fixture,yes,1,TAG EQUALS under cabinet light,under cabinet light
+Grow Lights,grow-lights,yes,1,TAG EQUALS grow light,grow light
+Strip and Rope Light,strip-and-rope-light,yes,1,TAG EQUALS strip and rope lights,strip and rope lights
+Landscape Lighting,landscape-lighting,yes,12,TAG EQUALS solar landscape lighting | TAG EQUALS path light fixtures | TAG EQUALS Step Light | TAG EQUALS outdoor hanging lights | TAG EQUALS Hardscape | TAG EQUALS Paver | TAG EQUALS Deck Light | TAG EQUALS Patio | TAG EQUALS outdoor wall lights | TAG EQUALS solar wall lights | TAG EQUALS solar decorative lights | TAG EQUALS solar pathway lights,solar landscape lighting|path light fixtures|Step Light|outdoor hanging lights|Hardscape|Paver|Deck Light|Patio|outdoor wall lights|solar wall lights|solar decorative lights|solar pathway lights
+Solar Pathway Lights,pathway-lights,yes,1,TAG EQUALS Solar Pathway lights,Solar Pathway lights
+Decorative Lights,decorative-lights,yes,1,TAG EQUALS solar decorative lights,solar decorative lights
+Solar Wall lights,solar-wall-lights,yes,1,TAG EQUALS solar wall lights,solar wall lights
+Flush Mounts,flush-mounts,yes,1,TAG EQUALS ceiling flush mounts,ceiling flush mounts
+Recessed Lights,recessed-lights,yes,1,TAG EQUALS ceiling recessed lights,ceiling recessed lights
+Indoor Wall Lights,indoor-wall-lights,yes,1,TAG EQUALS indoor wall lights,indoor wall lights
+Hanging Pendant Lights,hanging-pendant-lights,yes,1,TAG EQUALS hanging pendant lights,hanging pendant lights
+Table Lamps,table-lamps,yes,1,TAG EQUALS table lamps,table lamps
+Tiffany Lamps,tiffany-lamps,yes,1,TAG EQUALS tiffany lamps,tiffany lamps
+Portable Lights,portable-lights,yes,1,TAG EQUALS portable lights,portable lights
+Remote Control Kits,remote-control-kits,no,1,TAG EQUALS remote control kits,remote control kits
+Constant Current LED Drivers,constant-current-led-drivers,yes,1,TAG EQUALS constant current led drivers,constant current led drivers
+Waterproof LED Drivers,waterproof-led-drivers,yes,1,TAG EQUALS waterproof led drivers,waterproof led drivers
+Path & Walkway Lights,path-walkway-lights,yes,2,TAG EQUALS path light fixtures | TAG EQUALS Step Light,path light fixtures|Step Light
+Outdoor Hanging Lights,outdoor-hanging-lights,yes,1,TAG EQUALS outdoor hanging lights,outdoor hanging lights
+Motion Sensor Lights,motion-sensor-lights,yes,1,TAG EQUALS motion sensor lights,motion sensor lights
+Dimmable LED Drivers,dimmable-led-drivers,yes,1,TAG EQUALS dimmable led drivers,dimmable led drivers
+Non-Dimmable LED Drivers,non-dimmable-led-drivers,yes,1,TAG EQUALS non-dimmable led drivers,non-dimmable led drivers
+Transformers,lighting-transformers,yes,2,TAG EQUALS halogen transformer | TAG EQUALS Large Transformer,halogen transformer|Large Transformer
+Control & Protection,control-protection,yes,4,TAG EQUALS dimmer | TAG EQUALS ignitor | TAG EQUALS ballast | TAG EQUALS Breaker,dimmer|ignitor|ballast|Breaker
+Path & Landscape Lights,path-landscape-lights,yes,8,TAG EQUALS path light fixtures | TAG EQUALS Step Light | TAG EQUALS outdoor hanging lights | TAG EQUALS Hardscape | TAG EQUALS Paver | TAG EQUALS Deck Light | TAG EQUALS Patio | TAG EQUALS outdoor wall lights,path light fixtures|Step Light|outdoor hanging lights|Hardscape|Paver|Deck Light|Patio|outdoor wall lights
+Accent & Specialty Lights,accent-specialty-lights,yes,4,TAG EQUALS motion sensor lights | TAG EQUALS spot light | TAG EQUALS Well Light | TAG EQUALS Underwater,motion sensor lights|spot light|Well Light|Underwater
+Solar Lights,solar-lights,yes,4,TAG EQUALS solar landscape lighting | TAG EQUALS solar pathway lights | TAG EQUALS solar decorative lights | TAG EQUALS solar wall lights,solar landscape lighting|solar pathway lights|solar decorative lights|solar wall lights
+Ceiling Fixtures,ceiling-fixtures,yes,3,TAG EQUALS ceiling flush mounts | TAG EQUALS ceiling recessed lights | TAG EQUALS ceiling fan,ceiling flush mounts|ceiling recessed lights|ceiling fan
+Wall & Hanging Lights,wall-hanging-lights,yes,2,TAG EQUALS indoor wall lights | TAG EQUALS hanging pendant lights,indoor wall lights|hanging pendant lights
+Task & Table Lighting,task-table-lighting,yes,2,TAG EQUALS Table Lamp | TAG EQUALS grow light,Table Lamp|grow light
+Undercabinet Light Fixtures-Main,undercabinet-light-fixtures,no,2,TAG EQUALS under cabinet light | TAG NOT_EQUALS Puck Light,under cabinet light|Puck Light
+General Purpose Bulbs,general-purpose-bulbs,yes,6,TAG EQUALS LED Bulbs | TAG EQUALS Halogen bulbs | TAG EQUALS Halogen | TAG EQUALS incandescent bulb | TAG EQUALS incandescent | TAG EQUALS LED Bulb,LED Bulbs|Halogen bulbs|Halogen|incandescent bulb|incandescent|LED Bulb
+Specialty Bulbs,specialty-bulbs,yes,10,TAG EQUALS strip and rope lights | TAG EQUALS automotive | TAG EQUALS microwave | TAG EQUALS stove | TAG EQUALS tractor | TAG EQUALS headlight | TAG EQUALS turn signal | TAG EQUALS marker light | TAG EQUALS flasher | TAG EQUALS portable lights,strip and rope lights|automotive|microwave|stove|tractor|headlight|turn signal|marker light|flasher|portable lights
+Mounting & Wiring,mounting-wiring,yes,9,TAG EQUALS stake | TAG EQUALS ground stake | TAG EQUALS spikes | TAG EQUALS spike | TAG EQUALS Wire Connector | TAG EQUALS wire nut | TAG EQUALS wirenut | TAG EQUALS twist on connector | TAG EQUALS connector,stake|ground stake|spikes|spike|Wire Connector|wire nut|wirenut|twist on connector|connector
+Light Control & Add-ons,light-control-add-ons,yes,2,TAG EQUALS honeycomb louver | TAG EQUALS honeycomb,honeycomb louver|honeycomb
+Ceiling Fan,ceiling-fan,yes,1,TAG EQUALS ceiling fan,ceiling fan
+Ceiling Lights,ceiling-lights,yes,2,TAG EQUALS ceiling flush mounts | TAG EQUALS ceiling recessed lights,ceiling flush mounts|ceiling recessed lights
+Outdoor Wall Lights,outdoor-wall-lights,yes,1,TAG EQUALS outdoor wall lights,outdoor wall lights
+Christmas Lights,christmas-lights,no,1,TAG EQUALS Christmas Light,Christmas Light
+Low Voltage Wire,low-voltage-wire,yes,1,TAG EQUALS Low Voltage Wire,Low Voltage Wire
+FBA Products - Owned Inventory,fba-products-owned-inventory,no,1,TAG EQUALS FBA,FBA
+CJ Collection,cj-collection,no,1,TAG EQUALS CJ Collection,CJ Collection
+LT Collection,lt-collection,yes,1,TAG EQUALS LT Collection,LT Collection
+Clearance,clearance,no,1,TAG EQUALS Clearance Collection,Clearance Collection
+Automotive and Offroading Lighting,automotive-and-offroading-lighting,no,2,TAG EQUALS ballast | TAG EQUALS Automotive and offroading Lighting collection,ballast|Automotive and offroading Lighting collection
+Projectors,projectors,yes,3,TAG EQUALS Projectors | TAG EQUALS Projection Lamp | TAG EQUALS projector light,Projectors|Projection Lamp|projector light
+Ambient Decor Light,ambient-decor-light,yes,1,TAG EQUALS Ambient Decor Lights,Ambient Decor Lights
+Puck Lights-Indoor,puck-lights,no,2,TAG EQUALS Puck Light | TAG EQUALS under cabinet,Puck Light|under cabinet
+Solar Landscape Lighting,solar-landscape-lighting,yes,1,TAG EQUALS solar landscape lighting,solar landscape lighting
+Brass Fixture And Accessories,brass-fixture-and-accessories,yes,6,TAG EQUALS brass light fixture | TAG EQUALS brass light | TAG EQUALS brass light cover | TAG EQUALS brass riser | TAG EQUALS Cast Brass | TITLE CONTAINS brass,brass light fixture|brass light|brass light cover|brass riser|Cast Brass

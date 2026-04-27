@@ -1,0 +1,29 @@
+[
+  {
+    "group_id": "img-val-001",
+    "product_title": "Image Validation Test",
+    "title_seed": "",
+    "short_description": "Validate image sizing messages.",
+    "vendor": "Ironsmith Lighting",
+    "product_type": "Light Bulb",
+    "status": "DRAFT",
+    "handle": "",
+    "tags": "bulb",
+    "option1_name": "Pack Size",
+    "option1_value": "1-Pack",
+    "price": "9.99",
+    "sku": "IMG-VAL-001",
+    "inventory": "5",
+    "image_folder": "tmp-image-validation",
+    "bulb_shape": "A19",
+    "base_type": "E26",
+    "wattage": "5",
+    "voltage": "120V",
+    "lumen_output": "450 lm",
+    "color_temp": "3000K",
+    "dimmable": "Yes",
+    "use_brand_profile": "yes",
+    "source_notes": "A1-05 validation",
+    "metafields_json": "{}"
+  }
+]

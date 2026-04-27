@@ -1,0 +1,34 @@
+{
+  "status": "succeeded",
+  "trigger": "onboarding-full",
+  "startedAt": "2026-04-27T04:57:06.737Z",
+  "completedAt": "2026-04-27T04:57:11.775Z",
+  "durationMs": 5038,
+  "steps": [
+    {
+      "id": "sync-metafields",
+      "ok": true,
+      "code": 0,
+      "durationMs": 3152,
+      "stdout": "◇ injected env (0) from .env // tip: ⌘ override existing { override: true }\nProduct definitions: 63\nVariant definitions: 11\nExisting product types: 108\nSmart collections: 94\nOutput: data/shopify-metafields.product.json",
+      "stderr": ""
+    },
+    {
+      "id": "build-store-db",
+      "ok": true,
+      "code": 0,
+      "durationMs": 947,
+      "stdout": "Store DB generated: data/shopify-store-db.json\nProduct types indexed: 108\nProduct metafields indexed: 63",
+      "stderr": ""
+    },
+    {
+      "id": "generate-single-template",
+      "ok": true,
+      "code": 0,
+      "durationMs": 937,
+      "stdout": "Single-tab intake generated: data/intake-single/products-intake.csv\nOne tab supports all product types via product_type + metafields_json.",
+      "stderr": ""
+    }
+  ],
+  "error": ""
+}

@@ -1,0 +1,1532 @@
+{
+  "version": 1,
+  "generatedAt": "2026-04-27T04:57:10.817Z",
+  "source": {
+    "store": "ironsmith-lighting.myshopify.com",
+    "apiVersion": "2025-10",
+    "schemaGeneratedAt": "2026-04-27T04:57:09.868Z",
+    "schemaPath": "data/shopify-metafields.product.json",
+    "rulesPath": "config/store-rules.json"
+  },
+  "productTypes": [
+    "12V Hanging Light",
+    "2025-Undercabinet lights",
+    "4 oz Geotextile",
+    "6 oz Geotextile",
+    "8 oz Geotextile",
+    "Accessory",
+    "Ambient Lights",
+    "Automotive Ballast",
+    "Automotive LED Bulb",
+    "Automotive LED Light",
+    "Ballast",
+    "Cabinet Light",
+    "Ceiling Fan",
+    "Ceiling Fan Control",
+    "Ceiling Fan Filters",
+    "Ceiling Fan Light",
+    "Ceiling Fan_2025",
+    "Ceiling Light",
+    "Ceiling Light Fixtures",
+    "Christmas Light",
+    "Circuit Breaker",
+    "Closet Lighting",
+    "Crystal Lamp",
+    "Deck Light",
+    "decorative lights",
+    "Decorative Lights",
+    "Decorative Solar Light",
+    "Dimmer Knob",
+    "Dimmer Switch",
+    "Dining Table",
+    "Flashlights",
+    "Flood Light Bulb",
+    "Floor Lamp",
+    "G4 Light Bulb",
+    "Grow light",
+    "Grow light - 2025",
+    "Halogen Bulb",
+    "Halogen Transformer",
+    "Hanging Light",
+    "hardscape lights",
+    "Hardscape Paver",
+    "Honeycomb Louver",
+    "Indoor Hanging Light",
+    "Indoor Wall Light",
+    "Indoor Wall Lights",
+    "Landscape Lighting Transformer",
+    "Landscape Transformers",
+    "LED bulb",
+    "LED Bulb",
+    "LED Bulb with Remote",
+    "LED Bulbs",
+    "LED Driver",
+    "LED light",
+    "Light Bulb",
+    "Light Fixture",
+    "Light Fixture Mount",
+    "Low Voltage Wire",
+    "MR11 Halogen Bulb",
+    "MR16 Halogen Bulb",
+    "MR16 Light Bulb",
+    "MR8 Light Bulb",
+    "Outdoor Wall Lights",
+    "PAR36 Light Bulb",
+    "Path Light Accessories",
+    "Path Light Fixture",
+    "photocell sensor",
+    "Portable LED Bulb",
+    "Portable LED Light Fixture",
+    "portable lights",
+    "Portable lights",
+    "Projector Light",
+    "Reading light",
+    "Recessed Light Fixtures",
+    "Smart Ceiling Light",
+    "Smart Dimmer Switch",
+    "Smart Plug",
+    "Smart Wall Lights",
+    "Solar Light",
+    "Solar Lights",
+    "solar Wall Light",
+    "Solar Wall Light",
+    "Spike",
+    "Spike Mount",
+    "Spot Light",
+    "Spot Light Fixture",
+    "Step Light",
+    "String Lights",
+    "Strip and Rope Light",
+    "Strip light",
+    "Strip Light",
+    "Table Lamp",
+    "Table Lamps",
+    "Timer",
+    "Touch Dimmer",
+    "Transformer",
+    "Transformer Accessories",
+    "Under Cabinet Light",
+    "Undercabinet Light",
+    "Underwater Light Fixture",
+    "Wall Lights",
+    "Wall Mount Fixture",
+    "Wedge Light Bulb",
+    "Weed Barrier",
+    "Well Light",
+    "Well Light Fixture",
+    "Wholesale - Spot Light Fixture",
+    "Wire Terminals & Connectors",
+    "Work Light"
+  ],
+  "productTypeAliases": [
+    {
+      "matchAny": [
+        "well light",
+        "in-ground",
+        "landscape",
+        "half moon"
+      ],
+      "target": "Well Light Fixture"
+    },
+    {
+      "matchAny": [
+        "mr16",
+        "a19",
+        "b11",
+        "bulb",
+        "candle"
+      ],
+      "target": "Light Bulb"
+    }
+  ],
+  "categoryProfiles": {
+    "Well Light Fixture": {
+      "requiredFields": [
+        "sku",
+        "price",
+        "base_type",
+        "wattage",
+        "voltage",
+        "lumen_output",
+        "color_temp"
+      ],
+      "requiredTags": [
+        "12v"
+      ],
+      "recommendedImageConfidence": 60
+    },
+    "Light Bulb": {
+      "requiredFields": [
+        "sku",
+        "price",
+        "base_type",
+        "wattage",
+        "voltage",
+        "lumen_output",
+        "color_temp"
+      ],
+      "requiredTags": [],
+      "recommendedImageConfidence": 60
+    },
+    "Landscape Lighting": {
+      "requiredFields": [
+        "sku",
+        "price",
+        "base_type",
+        "wattage",
+        "voltage",
+        "lumen_output",
+        "color_temp"
+      ],
+      "requiredTags": [
+        "12v"
+      ],
+      "recommendedImageConfidence": 60
+    },
+    "Light Bulbs": {
+      "requiredFields": [
+        "sku",
+        "price",
+        "base_type",
+        "wattage",
+        "voltage",
+        "lumen_output",
+        "color_temp"
+      ],
+      "requiredTags": [],
+      "recommendedImageConfidence": 60
+    },
+    "default": {
+      "requiredFields": [
+        "sku",
+        "price",
+        "base_type",
+        "wattage",
+        "voltage",
+        "lumen_output"
+      ],
+      "requiredTags": [],
+      "recommendedImageConfidence": 60
+    }
+  },
+  "publishGate": {
+    "requireMappedProductType": true,
+    "requireCollectionMatch": false,
+    "minimumImageConfidence": 60,
+    "imageValidation": {
+      "minBytes": 30720,
+      "maxBytes": 10485760,
+      "minWidth": 800,
+      "minHeight": 800
+    }
+  },
+  "metafields": [
+    {
+      "name": "Search product boosts",
+      "namespace": "shopify--discovery--product_search_boost",
+      "key": "queries",
+      "type": "list.single_line_text_field",
+      "description": "List of search queries for which a product gets higher rank in search results",
+      "validations": [
+        {
+          "name": "max",
+          "value": "100"
+        },
+        {
+          "name": "list.max",
+          "value": "10"
+        }
+      ],
+      "headerDot": "shopify--discovery--product_search_boost.queries",
+      "headerUnderscore": "shopify--discovery--product_search_boost_queries"
+    },
+    {
+      "name": "Related products",
+      "namespace": "shopify--discovery--product_recommendation",
+      "key": "related_products",
+      "type": "list.product_reference",
+      "description": "List of related products",
+      "validations": [
+        {
+          "name": "list.max",
+          "value": "10"
+        }
+      ],
+      "headerDot": "shopify--discovery--product_recommendation.related_products",
+      "headerUnderscore": "shopify--discovery--product_recommendation_related_products"
+    },
+    {
+      "name": "Related products settings",
+      "namespace": "shopify--discovery--product_recommendation",
+      "key": "related_products_display",
+      "type": "single_line_text_field",
+      "description": "Determines how related products are displayed along with algorithmic product recommendations",
+      "validations": [
+        {
+          "name": "choices",
+          "value": "[\"ahead\",\"only manual\"]"
+        }
+      ],
+      "headerDot": "shopify--discovery--product_recommendation.related_products_display",
+      "headerUnderscore": "shopify--discovery--product_recommendation_related_products_display"
+    },
+    {
+      "name": "Complementary products",
+      "namespace": "shopify--discovery--product_recommendation",
+      "key": "complementary_products",
+      "type": "list.product_reference",
+      "description": "List of complementary products",
+      "validations": [
+        {
+          "name": "list.max",
+          "value": "10"
+        }
+      ],
+      "headerDot": "shopify--discovery--product_recommendation.complementary_products",
+      "headerUnderscore": "shopify--discovery--product_recommendation_complementary_products"
+    },
+    {
+      "name": "Product rating",
+      "namespace": "reviews",
+      "key": "rating",
+      "type": "rating",
+      "description": "Average rating from customers",
+      "validations": [
+        {
+          "name": "scale_min",
+          "value": "1.0"
+        },
+        {
+          "name": "scale_max",
+          "value": "5.0"
+        }
+      ],
+      "headerDot": "reviews.rating",
+      "headerUnderscore": "reviews_rating"
+    },
+    {
+      "name": "Product rating count",
+      "namespace": "reviews",
+      "key": "rating_count",
+      "type": "number_integer",
+      "description": "Total number of ratings from customers",
+      "validations": [
+        {
+          "name": "min",
+          "value": "0"
+        }
+      ],
+      "headerDot": "reviews.rating_count",
+      "headerUnderscore": "reviews_rating_count"
+    },
+    {
+      "name": "Google: Custom Product",
+      "namespace": "mm-google-shopping",
+      "key": "custom_product",
+      "type": "boolean",
+      "description": "Use to indicate whether or not the unique product identifiers (UPIs) GTIN, MPN, and brand are available for your product.",
+      "validations": [],
+      "headerDot": "mm-google-shopping.custom_product",
+      "headerUnderscore": "mm-google-shopping_custom_product"
+    },
+    {
+      "name": "Energy efficiency class",
+      "namespace": "shopify",
+      "key": "energy-efficiency-class",
+      "type": "list.metaobject_reference",
+      "description": "Defines the energy efficiency rating of a product, e.g. A+++",
+      "validations": [
+        {
+          "name": "metaobject_definition_id",
+          "value": "gid://shopify/MetaobjectDefinition/2788229313"
+        }
+      ],
+      "headerDot": "shopify.energy-efficiency-class",
+      "headerUnderscore": "shopify_energy-efficiency-class"
+    },
+    {
+      "name": "Color",
+      "namespace": "shopify",
+      "key": "color-pattern",
+      "type": "list.metaobject_reference",
+      "description": "Defines the primary color or pattern, such as blue or striped",
+      "validations": [
+        {
+          "name": "metaobject_definition_id",
+          "value": "gid://shopify/MetaobjectDefinition/2788262081"
+        }
+      ],
+      "headerDot": "shopify.color-pattern",
+      "headerUnderscore": "shopify_color-pattern"
+    },
+    {
+      "name": "Light temperature",
+      "namespace": "shopify",
+      "key": "light-temperature",
+      "type": "list.metaobject_reference",
+      "description": "Defines the color characteristics of light sources, such as warm white or daylight",
+      "validations": [
+        {
+          "name": "metaobject_definition_id",
+          "value": "gid://shopify/MetaobjectDefinition/4861984961"
+        }
+      ],
+      "headerDot": "shopify.light-temperature",
+      "headerUnderscore": "shopify_light-temperature"
+    },
+    {
+      "name": "Bulb cap type",
+      "namespace": "shopify",
+      "key": "bulb-cap-type",
+      "type": "list.metaobject_reference",
+      "description": "Specifies the type of cap or base a light bulb or fixture has, e.g. E12, GU10",
+      "validations": [
+        {
+          "name": "metaobject_definition_id",
+          "value": "gid://shopify/MetaobjectDefinition/4861952193"
+        }
+      ],
+      "headerDot": "shopify.bulb-cap-type",
+      "headerUnderscore": "shopify_bulb-cap-type"
+    },
+    {
+      "name": "Bulb shape",
+      "namespace": "shopify",
+      "key": "bulb-shape",
+      "type": "list.metaobject_reference",
+      "description": "Describes the shape of lighting products, e.g. tube, spiral",
+      "validations": [
+        {
+          "name": "metaobject_definition_id",
+          "value": "gid://shopify/MetaobjectDefinition/4861919425"
+        }
+      ],
+      "headerDot": "shopify.bulb-shape",
+      "headerUnderscore": "shopify_bulb-shape"
+    },
+    {
+      "name": "Safety Note",
+      "namespace": "custom",
+      "key": "safety_note",
+      "type": "rich_text_field",
+      "description": "Safety Note",
+      "validations": [],
+      "headerDot": "custom.safety_note",
+      "headerUnderscore": "custom_safety_note"
+    },
+    {
+      "name": "Specifications",
+      "namespace": "custom",
+      "key": "product_specifications",
+      "type": "rich_text_field",
+      "description": "Product Specifications",
+      "validations": [],
+      "headerDot": "custom.product_specifications",
+      "headerUnderscore": "custom_product_specifications"
+    },
+    {
+      "name": "Key Features",
+      "namespace": "custom",
+      "key": "key_features",
+      "type": "rich_text_field",
+      "description": "Key Features",
+      "validations": [],
+      "headerDot": "custom.key_features",
+      "headerUnderscore": "custom_key_features"
+    },
+    {
+      "name": "Shipping Details",
+      "namespace": "custom",
+      "key": "shipping_details",
+      "type": "rich_text_field",
+      "description": "",
+      "validations": [],
+      "headerDot": "custom.shipping_details",
+      "headerUnderscore": "custom_shipping_details"
+    },
+    {
+      "name": "Mounting type",
+      "namespace": "shopify",
+      "key": "mounting-type",
+      "type": "list.metaobject_reference",
+      "description": "Specifies how a product is installed or attached, such as clip-on or suction cup",
+      "validations": [
+        {
+          "name": "metaobject_definition_id",
+          "value": "gid://shopify/MetaobjectDefinition/8245608641"
+        }
+      ],
+      "headerDot": "shopify.mounting-type",
+      "headerUnderscore": "shopify_mounting-type"
+    },
+    {
+      "name": "Light color",
+      "namespace": "shopify",
+      "key": "light-color",
+      "type": "list.metaobject_reference",
+      "description": "Defines the color or hue of light, such as white or multicolor",
+      "validations": [
+        {
+          "name": "metaobject_definition_id",
+          "value": "gid://shopify/MetaobjectDefinition/2788262081"
+        }
+      ],
+      "headerDot": "shopify.light-color",
+      "headerUnderscore": "shopify_light-color"
+    },
+    {
+      "name": "FAQs",
+      "namespace": "custom",
+      "key": "faqs",
+      "type": "rich_text_field",
+      "description": "Query questions",
+      "validations": [],
+      "headerDot": "custom.faqs",
+      "headerUnderscore": "custom_faqs"
+    },
+    {
+      "name": "Socket type",
+      "namespace": "shopify",
+      "key": "socket-type",
+      "type": "list.metaobject_reference",
+      "description": "Identifies the type of socket in power outlets, such as USB or Ethernet",
+      "validations": [
+        {
+          "name": "metaobject_definition_id",
+          "value": "gid://shopify/MetaobjectDefinition/9685958849"
+        }
+      ],
+      "headerDot": "shopify.socket-type",
+      "headerUnderscore": "shopify_socket-type"
+    },
+    {
+      "name": "Material",
+      "namespace": "shopify",
+      "key": "material",
+      "type": "list.metaobject_reference",
+      "description": "Defines a product's primary material, such as cotton or wool",
+      "validations": [
+        {
+          "name": "metaobject_definition_id",
+          "value": "gid://shopify/MetaobjectDefinition/10120986817"
+        }
+      ],
+      "headerDot": "shopify.material",
+      "headerUnderscore": "shopify_material"
+    },
+    {
+      "name": "Disclaimer",
+      "namespace": "custom",
+      "key": "disclaimer",
+      "type": "rich_text_field",
+      "description": "",
+      "validations": [],
+      "headerDot": "custom.disclaimer",
+      "headerUnderscore": "custom_disclaimer"
+    },
+    {
+      "name": "Candle shape",
+      "namespace": "shopify",
+      "key": "candle-shape",
+      "type": "list.metaobject_reference",
+      "description": "Describes the form of a candle, such as cylindrical or square",
+      "validations": [
+        {
+          "name": "metaobject_definition_id",
+          "value": "gid://shopify/MetaobjectDefinition/10765828289"
+        }
+      ],
+      "headerDot": "shopify.candle-shape",
+      "headerUnderscore": "shopify_candle-shape"
+    },
+    {
+      "name": "Power source",
+      "namespace": "shopify",
+      "key": "power-source",
+      "type": "list.metaobject_reference",
+      "description": "Specifies the power source a product uses to operate, such as solar or batteries",
+      "validations": [
+        {
+          "name": "metaobject_definition_id",
+          "value": "gid://shopify/MetaobjectDefinition/10765861057"
+        }
+      ],
+      "headerDot": "shopify.power-source",
+      "headerUnderscore": "shopify_power-source"
+    },
+    {
+      "name": "Item condition",
+      "namespace": "shopify",
+      "key": "item-condition",
+      "type": "list.metaobject_reference",
+      "description": "Indicates the quality of an item, typically vehicles or vehicle parts; e.g. certified pre-owned, refurbished",
+      "validations": [
+        {
+          "name": "metaobject_definition_id",
+          "value": "gid://shopify/MetaobjectDefinition/10765893825"
+        }
+      ],
+      "headerDot": "shopify.item-condition",
+      "headerUnderscore": "shopify_item-condition"
+    },
+    {
+      "name": "Fit type",
+      "namespace": "shopify",
+      "key": "fit-type",
+      "type": "list.metaobject_reference",
+      "description": "Describes the fit type for vehicle parts and accessories, like custom or universal",
+      "validations": [
+        {
+          "name": "metaobject_definition_id",
+          "value": "gid://shopify/MetaobjectDefinition/10765926593"
+        }
+      ],
+      "headerDot": "shopify.fit-type",
+      "headerUnderscore": "shopify_fit-type"
+    },
+    {
+      "name": "Lighting features",
+      "namespace": "shopify",
+      "key": "lighting-features",
+      "type": "list.metaobject_reference",
+      "description": "Describes special characteristics of lighting, like adjustable brightness or LED lighting",
+      "validations": [
+        {
+          "name": "metaobject_definition_id",
+          "value": "gid://shopify/MetaobjectDefinition/10765959361"
+        }
+      ],
+      "headerDot": "shopify.lighting-features",
+      "headerUnderscore": "shopify_lighting-features"
+    },
+    {
+      "name": "Suitable space",
+      "namespace": "shopify",
+      "key": "suitable-space",
+      "type": "list.metaobject_reference",
+      "description": "Defines the ideal location for product use, e.g. indoors, above ground",
+      "validations": [
+        {
+          "name": "metaobject_definition_id",
+          "value": "gid://shopify/MetaobjectDefinition/10765992129"
+        }
+      ],
+      "headerDot": "shopify.suitable-space",
+      "headerUnderscore": "shopify_suitable-space"
+    },
+    {
+      "name": "Manufacturer type",
+      "namespace": "shopify",
+      "key": "manufacturer-type",
+      "type": "list.metaobject_reference",
+      "description": "Specifies the source of vehicle parts or accessories, such as genuine or third-party",
+      "validations": [
+        {
+          "name": "metaobject_definition_id",
+          "value": "gid://shopify/MetaobjectDefinition/10822811841"
+        }
+      ],
+      "headerDot": "shopify.manufacturer-type",
+      "headerUnderscore": "shopify_manufacturer-type"
+    },
+    {
+      "name": "Hardware material",
+      "namespace": "shopify",
+      "key": "hardware-material",
+      "type": "list.metaobject_reference",
+      "description": "Specifies the composition of hardware items, such as metal or stainless steel",
+      "validations": [
+        {
+          "name": "metaobject_definition_id",
+          "value": "gid://shopify/MetaobjectDefinition/10882515137"
+        }
+      ],
+      "headerDot": "shopify.hardware-material",
+      "headerUnderscore": "shopify_hardware-material"
+    },
+    {
+      "name": "Spike design",
+      "namespace": "shopify",
+      "key": "spike-design",
+      "type": "list.metaobject_reference",
+      "description": "Identifies the style of spikes, such as tent or landscape fabric",
+      "validations": [
+        {
+          "name": "metaobject_definition_id",
+          "value": "gid://shopify/MetaobjectDefinition/10882482369"
+        }
+      ],
+      "headerDot": "shopify.spike-design",
+      "headerUnderscore": "shopify_spike-design"
+    },
+    {
+      "name": "Display technology",
+      "namespace": "shopify",
+      "key": "display-technology",
+      "type": "list.metaobject_reference",
+      "description": "Defines the type of screen technology used in a product, e.g. LED, e-ink",
+      "validations": [
+        {
+          "name": "metaobject_definition_id",
+          "value": "gid://shopify/MetaobjectDefinition/10900603073"
+        }
+      ],
+      "headerDot": "shopify.display-technology",
+      "headerUnderscore": "shopify_display-technology"
+    },
+    {
+      "name": "Timer type",
+      "namespace": "shopify",
+      "key": "timer-type",
+      "type": "list.metaobject_reference",
+      "description": "Specifies the frequency setting for timers, e.g. daily, weekly",
+      "validations": [
+        {
+          "name": "metaobject_definition_id",
+          "value": "gid://shopify/MetaobjectDefinition/10900635841"
+        }
+      ],
+      "headerDot": "shopify.timer-type",
+      "headerUnderscore": "shopify_timer-type"
+    },
+    {
+      "name": "Bulb type",
+      "namespace": "shopify",
+      "key": "bulb-type",
+      "type": "list.metaobject_reference",
+      "description": "Specifies the type of bulb used in lighting products, e.g. LED, halogen",
+      "validations": [
+        {
+          "name": "metaobject_definition_id",
+          "value": "gid://shopify/MetaobjectDefinition/8832975041"
+        }
+      ],
+      "headerDot": "shopify.bulb-type",
+      "headerUnderscore": "shopify_bulb-type"
+    },
+    {
+      "name": "Bulb size",
+      "namespace": "shopify",
+      "key": "bulb-size",
+      "type": "list.metaobject_reference",
+      "description": "Specifies the size of light bulbs, e.g. A19, C7",
+      "validations": [
+        {
+          "name": "metaobject_definition_id",
+          "value": "gid://shopify/MetaobjectDefinition/11020304577"
+        }
+      ],
+      "headerDot": "shopify.bulb-size",
+      "headerUnderscore": "shopify_bulb-size"
+    },
+    {
+      "name": "Flower color",
+      "namespace": "shopify",
+      "key": "flower-color",
+      "type": "list.metaobject_reference",
+      "description": "Specifies the color of the flower, such as pink or multicolor",
+      "validations": [
+        {
+          "name": "metaobject_definition_id",
+          "value": "gid://shopify/MetaobjectDefinition/2788262081"
+        }
+      ],
+      "headerDot": "shopify.flower-color",
+      "headerUnderscore": "shopify_flower-color"
+    },
+    {
+      "name": "Theme",
+      "namespace": "shopify",
+      "key": "theme",
+      "type": "list.metaobject_reference",
+      "description": "Describes the product's primary theme or motif, such as sport, space, or holidays",
+      "validations": [
+        {
+          "name": "metaobject_definition_id",
+          "value": "gid://shopify/MetaobjectDefinition/11323900097"
+        }
+      ],
+      "headerDot": "shopify.theme",
+      "headerUnderscore": "shopify_theme"
+    },
+    {
+      "name": "Plant characteristics",
+      "namespace": "shopify",
+      "key": "plant-characteristics",
+      "type": "list.metaobject_reference",
+      "description": "Defines specific traits of plants, e.g. flowering, edible",
+      "validations": [
+        {
+          "name": "metaobject_definition_id",
+          "value": "gid://shopify/MetaobjectDefinition/11323932865"
+        }
+      ],
+      "headerDot": "shopify.plant-characteristics",
+      "headerUnderscore": "shopify_plant-characteristics"
+    },
+    {
+      "name": "Shape",
+      "namespace": "shopify",
+      "key": "shape",
+      "type": "list.metaobject_reference",
+      "description": "Describes the geometric form or shape of a product, such as round or heart",
+      "validations": [
+        {
+          "name": "metaobject_definition_id",
+          "value": "gid://shopify/MetaobjectDefinition/11342446785"
+        }
+      ],
+      "headerDot": "shopify.shape",
+      "headerUnderscore": "shopify_shape"
+    },
+    {
+      "name": "Decoration material",
+      "namespace": "shopify",
+      "key": "decoration-material",
+      "type": "list.metaobject_reference",
+      "description": "Identifies the material used for decoration, such as sequins or feathers",
+      "validations": [
+        {
+          "name": "metaobject_definition_id",
+          "value": "gid://shopify/MetaobjectDefinition/11342479553"
+        }
+      ],
+      "headerDot": "shopify.decoration-material",
+      "headerUnderscore": "shopify_decoration-material"
+    },
+    {
+      "name": "Battery type",
+      "namespace": "shopify",
+      "key": "battery-type",
+      "type": "list.metaobject_reference",
+      "description": "Distinguishes between types of batteries, such as disposable or rechargeable",
+      "validations": [
+        {
+          "name": "metaobject_definition_id",
+          "value": "gid://shopify/MetaobjectDefinition/11342512321"
+        }
+      ],
+      "headerDot": "shopify.battery-type",
+      "headerUnderscore": "shopify_battery-type"
+    },
+    {
+      "name": "Style",
+      "namespace": "shopify",
+      "key": "style",
+      "type": "list.metaobject_reference",
+      "description": "Describes the style of a product, typically for window treatments; e.g. vertical blind, pleated shades",
+      "validations": [
+        {
+          "name": "metaobject_definition_id",
+          "value": "gid://shopify/MetaobjectDefinition/11343986881"
+        }
+      ],
+      "headerDot": "shopify.style",
+      "headerUnderscore": "shopify_style"
+    },
+    {
+      "name": "Table Spec",
+      "namespace": "custom",
+      "key": "table_spec",
+      "type": "json",
+      "description": "",
+      "validations": [],
+      "headerDot": "custom.table_spec",
+      "headerUnderscore": "custom_table_spec"
+    },
+    {
+      "name": "Table Specification",
+      "namespace": "custom",
+      "key": "table_specification",
+      "type": "rich_text_field",
+      "description": "",
+      "validations": [],
+      "headerDot": "custom.table_specification",
+      "headerUnderscore": "custom_table_specification"
+    },
+    {
+      "name": "PDF",
+      "namespace": "custom",
+      "key": "pdf",
+      "type": "file_reference",
+      "description": "",
+      "validations": [],
+      "headerDot": "custom.pdf",
+      "headerUnderscore": "custom_pdf"
+    },
+    {
+      "name": "Product PDF",
+      "namespace": "custom",
+      "key": "product_pdf",
+      "type": "file_reference",
+      "description": "",
+      "validations": [],
+      "headerDot": "custom.product_pdf",
+      "headerUnderscore": "custom_product_pdf"
+    },
+    {
+      "name": "Tech PDF",
+      "namespace": "custom",
+      "key": "tech_pdf",
+      "type": "file_reference",
+      "description": "",
+      "validations": [],
+      "headerDot": "custom.tech_pdf",
+      "headerUnderscore": "custom_tech_pdf"
+    },
+    {
+      "name": "Installation Video",
+      "namespace": "custom",
+      "key": "installation_video",
+      "type": "url",
+      "description": "",
+      "validations": [],
+      "headerDot": "custom.installation_video",
+      "headerUnderscore": "custom_installation_video"
+    },
+    {
+      "name": "Wattage",
+      "namespace": "custom",
+      "key": "wattage",
+      "type": "number_integer",
+      "description": "",
+      "validations": [],
+      "headerDot": "custom.wattage",
+      "headerUnderscore": "custom_wattage"
+    },
+    {
+      "name": "Min_Voltage",
+      "namespace": "custom",
+      "key": "min_voltage",
+      "type": "number_integer",
+      "description": "",
+      "validations": [],
+      "headerDot": "custom.min_voltage",
+      "headerUnderscore": "custom_min_voltage"
+    },
+    {
+      "name": "Max_Voltage",
+      "namespace": "custom",
+      "key": "max_voltage",
+      "type": "number_integer",
+      "description": "",
+      "validations": [],
+      "headerDot": "custom.max_voltage",
+      "headerUnderscore": "custom_max_voltage"
+    },
+    {
+      "name": "Finish",
+      "namespace": "shopify",
+      "key": "finish",
+      "type": "list.metaobject_reference",
+      "description": "Describes the surface quality of a product, like satin or matte",
+      "validations": [
+        {
+          "name": "metaobject_definition_id",
+          "value": "gid://shopify/MetaobjectDefinition/12485132481"
+        }
+      ],
+      "headerDot": "shopify.finish",
+      "headerUnderscore": "shopify_finish"
+    },
+    {
+      "name": "Ingress protection (IP) rating",
+      "namespace": "shopify",
+      "key": "ingress-protection-ip-rating",
+      "type": "list.metaobject_reference",
+      "description": "Provides the official IP water/dust resistance rating the case complies with (e.g., IP68).",
+      "validations": [
+        {
+          "name": "metaobject_definition_id",
+          "value": "gid://shopify/MetaobjectDefinition/12613451969"
+        }
+      ],
+      "headerDot": "shopify.ingress-protection-ip-rating",
+      "headerUnderscore": "shopify_ingress-protection-ip-rating"
+    },
+    {
+      "name": "Motion sensor type",
+      "namespace": "shopify",
+      "key": "motion-sensor-type",
+      "type": "list.metaobject_reference",
+      "description": "Identifies the technology used in motion sensors, such as infrared or laser",
+      "validations": [
+        {
+          "name": "metaobject_definition_id",
+          "value": "gid://shopify/MetaobjectDefinition/12613910721"
+        }
+      ],
+      "headerDot": "shopify.motion-sensor-type",
+      "headerUnderscore": "shopify_motion-sensor-type"
+    },
+    {
+      "name": "Light source",
+      "namespace": "shopify",
+      "key": "light-source",
+      "type": "list.metaobject_reference",
+      "description": "Identifies the kind of light bulb used in a product, such as LED or fluorescent",
+      "validations": [
+        {
+          "name": "metaobject_definition_id",
+          "value": "gid://shopify/MetaobjectDefinition/8832975041"
+        }
+      ],
+      "headerDot": "shopify.light-source",
+      "headerUnderscore": "shopify_light-source"
+    },
+    {
+      "name": "Switch control type",
+      "namespace": "shopify",
+      "key": "switch-control-type",
+      "type": "list.metaobject_reference",
+      "description": "Describes how a light switch is controlled, such as button or sensor",
+      "validations": [
+        {
+          "name": "metaobject_definition_id",
+          "value": "gid://shopify/MetaobjectDefinition/12614664385"
+        }
+      ],
+      "headerDot": "shopify.switch-control-type",
+      "headerUnderscore": "shopify_switch-control-type"
+    },
+    {
+      "name": "Lampshade shape",
+      "namespace": "shopify",
+      "key": "lampshade-shape",
+      "type": "list.metaobject_reference",
+      "description": "Describes the geometrical shape or form of the lamp shade.",
+      "validations": [
+        {
+          "name": "metaobject_definition_id",
+          "value": "gid://shopify/MetaobjectDefinition/12614631617"
+        }
+      ],
+      "headerDot": "shopify.lampshade-shape",
+      "headerUnderscore": "shopify_lampshade-shape"
+    },
+    {
+      "name": "Connection type",
+      "namespace": "shopify",
+      "key": "connection-type",
+      "type": "list.metaobject_reference",
+      "description": "Specifies the type of connection used by electronics, such as wired or Bluetooth",
+      "validations": [
+        {
+          "name": "metaobject_definition_id",
+          "value": "gid://shopify/MetaobjectDefinition/12614729921"
+        }
+      ],
+      "headerDot": "shopify.connection-type",
+      "headerUnderscore": "shopify_connection-type"
+    },
+    {
+      "name": "Light spectrum",
+      "namespace": "shopify",
+      "key": "light-spectrum",
+      "type": "list.metaobject_reference",
+      "description": "Defines the range of light wavelengths a product can produce, e.g. blue light, infrared light",
+      "validations": [
+        {
+          "name": "metaobject_definition_id",
+          "value": "gid://shopify/MetaobjectDefinition/12614959297"
+        }
+      ],
+      "headerDot": "shopify.light-spectrum",
+      "headerUnderscore": "shopify_light-spectrum"
+    },
+    {
+      "name": "Candle type",
+      "namespace": "shopify",
+      "key": "candle-type",
+      "type": "list.metaobject_reference",
+      "description": "Specifies the design of candles, such as taper or tea light",
+      "validations": [
+        {
+          "name": "metaobject_definition_id",
+          "value": "gid://shopify/MetaobjectDefinition/12615221441"
+        }
+      ],
+      "headerDot": "shopify.candle-type",
+      "headerUnderscore": "shopify_candle-type"
+    },
+    {
+      "name": "Bulb finish",
+      "namespace": "shopify",
+      "key": "bulb-finish",
+      "type": "list.metaobject_reference",
+      "description": "Describes the external coating or finish of the bulb glass, which affects light diffusion and style.",
+      "validations": [
+        {
+          "name": "metaobject_definition_id",
+          "value": "gid://shopify/MetaobjectDefinition/12615352513"
+        }
+      ],
+      "headerDot": "shopify.bulb-finish",
+      "headerUnderscore": "shopify_bulb-finish"
+    },
+    {
+      "name": "Glazing material",
+      "namespace": "shopify",
+      "key": "glazing-material",
+      "type": "list.metaobject_reference",
+      "description": "Identifies the material covering the photo area (e.g., glass, acrylic, or none).",
+      "validations": [
+        {
+          "name": "metaobject_definition_id",
+          "value": "gid://shopify/MetaobjectDefinition/12701663425"
+        }
+      ],
+      "headerDot": "shopify.glazing-material",
+      "headerUnderscore": "shopify_glazing-material"
+    },
+    {
+      "name": "Battery size",
+      "namespace": "shopify",
+      "key": "battery-size",
+      "type": "list.metaobject_reference",
+      "description": "Indicates the battery compatibility for the product, such as AAA or 9V",
+      "validations": [
+        {
+          "name": "metaobject_definition_id",
+          "value": "gid://shopify/MetaobjectDefinition/12702875841"
+        }
+      ],
+      "headerDot": "shopify.battery-size",
+      "headerUnderscore": "shopify_battery-size"
+    }
+  ],
+  "collectionHintsByProductType": {
+    "12V Hanging Light": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "2025-Undercabinet lights": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "4 oz Geotextile": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "6 oz Geotextile": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "8 oz Geotextile": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Accessory": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Ambient Lights": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Automotive Ballast": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Automotive LED Bulb": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Automotive LED Light": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Ballast": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Cabinet Light": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Ceiling Fan": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Ceiling Fan Control": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Ceiling Fan Filters": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Ceiling Fan Light": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Ceiling Fan_2025": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Ceiling Light": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Ceiling Light Fixtures": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Christmas Light": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Circuit Breaker": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Closet Lighting": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Crystal Lamp": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Deck Light": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "decorative lights": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Decorative Lights": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Decorative Solar Light": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Dimmer Knob": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Dimmer Switch": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Dining Table": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Flashlights": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Flood Light Bulb": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Floor Lamp": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "G4 Light Bulb": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Grow light": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Grow light - 2025": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Halogen Bulb": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Halogen Transformer": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Hanging Light": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "hardscape lights": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Hardscape Paver": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Honeycomb Louver": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Indoor Hanging Light": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Indoor Wall Light": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Indoor Wall Lights": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Landscape Lighting Transformer": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Landscape Transformers": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "LED bulb": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "LED Bulb": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "LED Bulb with Remote": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "LED Bulbs": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "LED Driver": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "LED light": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Light Bulb": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Light Fixture": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Light Fixture Mount": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Low Voltage Wire": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "MR11 Halogen Bulb": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "MR16 Halogen Bulb": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "MR16 Light Bulb": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "MR8 Light Bulb": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Outdoor Wall Lights": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "PAR36 Light Bulb": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Path Light Accessories": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Path Light Fixture": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "photocell sensor": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Portable LED Bulb": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Portable LED Light Fixture": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "portable lights": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Portable lights": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Projector Light": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Reading light": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Recessed Light Fixtures": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Smart Ceiling Light": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Smart Dimmer Switch": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Smart Plug": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Smart Wall Lights": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Solar Light": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Solar Lights": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "solar Wall Light": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Solar Wall Light": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Spike": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Spike Mount": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Spot Light": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Spot Light Fixture": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Step Light": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "String Lights": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Strip and Rope Light": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Strip light": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Strip Light": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Table Lamp": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Table Lamps": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Timer": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Touch Dimmer": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Transformer": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Transformer Accessories": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Under Cabinet Light": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Undercabinet Light": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Underwater Light Fixture": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Wall Lights": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Wall Mount Fixture": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Wedge Light Bulb": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Weed Barrier": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Well Light": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Well Light Fixture": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Wholesale - Spot Light Fixture": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Wire Terminals & Connectors": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "Work Light": {
+      "suggestedTags": [],
+      "matchingCollections": []
+    }
+  }
+}

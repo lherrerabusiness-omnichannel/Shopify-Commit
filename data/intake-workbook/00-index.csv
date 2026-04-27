@@ -1,0 +1,115 @@
+tab_name,file,purpose,notes
+Intake,data/intake-workbook/01-intake.csv,Primary listing intake (one row per variant),"Fill this first, then run import:csv:images:schema"
+Brand Defaults,data/intake-workbook/02-brand-defaults.csv,"Global defaults for vendor, tags, and copy",Matches config/always-use-brand.csv format
+Template Defaults,data/intake-workbook/03-template-defaults.csv,Reusable defaults keyed by keyword match tokens,Matches config/always-use-templates.csv format
+Product Types,data/intake-workbook/04-product-types.csv,Store product types synced from Shopify,All types selected
+Metafields Reference,data/intake-workbook/05-metafields-reference.csv,Valid metafield headers for auto-map,Use header_dot or header_underscore names in intake
+Collections Rules,data/intake-workbook/06-collection-rules.csv,Smart collection rules and tag conditions,Reference for auto tag planning
+Type - 12V Hanging Light,data/intake-workbook/tabs/type-12v-hanging-light.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - 2025-Undercabinet lights,data/intake-workbook/tabs/type-2025-undercabinet-lights.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - 4 oz Geotextile,data/intake-workbook/tabs/type-4-oz-geotextile.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - 6 oz Geotextile,data/intake-workbook/tabs/type-6-oz-geotextile.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - 8 oz Geotextile,data/intake-workbook/tabs/type-8-oz-geotextile.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Accessory,data/intake-workbook/tabs/type-accessory.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Ambient Lights,data/intake-workbook/tabs/type-ambient-lights.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Automotive Ballast,data/intake-workbook/tabs/type-automotive-ballast.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Automotive LED Bulb,data/intake-workbook/tabs/type-automotive-led-bulb.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Automotive LED Light,data/intake-workbook/tabs/type-automotive-led-light.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Ballast,data/intake-workbook/tabs/type-ballast.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Cabinet Light,data/intake-workbook/tabs/type-cabinet-light.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Ceiling Fan,data/intake-workbook/tabs/type-ceiling-fan.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Ceiling Fan Control,data/intake-workbook/tabs/type-ceiling-fan-control.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Ceiling Fan Filters,data/intake-workbook/tabs/type-ceiling-fan-filters.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Ceiling Fan Light,data/intake-workbook/tabs/type-ceiling-fan-light.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Ceiling Fan_2025,data/intake-workbook/tabs/type-ceiling-fan2025.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Ceiling Light,data/intake-workbook/tabs/type-ceiling-light.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Ceiling Light Fixtures,data/intake-workbook/tabs/type-ceiling-light-fixtures.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Christmas Light,data/intake-workbook/tabs/type-christmas-light.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Circuit Breaker,data/intake-workbook/tabs/type-circuit-breaker.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Closet Lighting,data/intake-workbook/tabs/type-closet-lighting.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Crystal Lamp,data/intake-workbook/tabs/type-crystal-lamp.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Deck Light,data/intake-workbook/tabs/type-deck-light.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - decorative lights,data/intake-workbook/tabs/type-decorative-lights.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Decorative Lights,data/intake-workbook/tabs/type-decorative-lights.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Decorative Solar Light,data/intake-workbook/tabs/type-decorative-solar-light.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Dimmer Knob,data/intake-workbook/tabs/type-dimmer-knob.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Dimmer Switch,data/intake-workbook/tabs/type-dimmer-switch.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Dining Table,data/intake-workbook/tabs/type-dining-table.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Flashlights,data/intake-workbook/tabs/type-flashlights.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Flood Light Bulb,data/intake-workbook/tabs/type-flood-light-bulb.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Floor Lamp,data/intake-workbook/tabs/type-floor-lamp.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - G4 Light Bulb,data/intake-workbook/tabs/type-g4-light-bulb.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Grow light,data/intake-workbook/tabs/type-grow-light.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Grow light - 2025,data/intake-workbook/tabs/type-grow-light-2025.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Halogen Bulb,data/intake-workbook/tabs/type-halogen-bulb.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Halogen Transformer,data/intake-workbook/tabs/type-halogen-transformer.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Hanging Light,data/intake-workbook/tabs/type-hanging-light.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - hardscape lights,data/intake-workbook/tabs/type-hardscape-lights.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Hardscape Paver,data/intake-workbook/tabs/type-hardscape-paver.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Honeycomb Louver,data/intake-workbook/tabs/type-honeycomb-louver.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Indoor Hanging Light,data/intake-workbook/tabs/type-indoor-hanging-light.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Indoor Wall Light,data/intake-workbook/tabs/type-indoor-wall-light.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Indoor Wall Lights,data/intake-workbook/tabs/type-indoor-wall-lights.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Landscape Lighting Transformer,data/intake-workbook/tabs/type-landscape-lighting-transformer.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Landscape Transformers,data/intake-workbook/tabs/type-landscape-transformers.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - LED bulb,data/intake-workbook/tabs/type-led-bulb.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - LED Bulb,data/intake-workbook/tabs/type-led-bulb.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - LED Bulb with Remote,data/intake-workbook/tabs/type-led-bulb-with-remote.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - LED Bulbs,data/intake-workbook/tabs/type-led-bulbs.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - LED Driver,data/intake-workbook/tabs/type-led-driver.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - LED light,data/intake-workbook/tabs/type-led-light.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Light Bulb,data/intake-workbook/tabs/type-light-bulb.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Light Fixture,data/intake-workbook/tabs/type-light-fixture.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Light Fixture Mount,data/intake-workbook/tabs/type-light-fixture-mount.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Low Voltage Wire,data/intake-workbook/tabs/type-low-voltage-wire.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - MR11 Halogen Bulb,data/intake-workbook/tabs/type-mr11-halogen-bulb.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - MR16 Halogen Bulb,data/intake-workbook/tabs/type-mr16-halogen-bulb.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - MR16 Light Bulb,data/intake-workbook/tabs/type-mr16-light-bulb.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - MR8 Light Bulb,data/intake-workbook/tabs/type-mr8-light-bulb.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Outdoor Wall Lights,data/intake-workbook/tabs/type-outdoor-wall-lights.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - PAR36 Light Bulb,data/intake-workbook/tabs/type-par36-light-bulb.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Path Light Accessories,data/intake-workbook/tabs/type-path-light-accessories.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Path Light Fixture,data/intake-workbook/tabs/type-path-light-fixture.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - photocell sensor,data/intake-workbook/tabs/type-photocell-sensor.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Portable LED Bulb,data/intake-workbook/tabs/type-portable-led-bulb.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Portable LED Light Fixture,data/intake-workbook/tabs/type-portable-led-light-fixture.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - portable lights,data/intake-workbook/tabs/type-portable-lights.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Portable lights,data/intake-workbook/tabs/type-portable-lights.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Projector Light,data/intake-workbook/tabs/type-projector-light.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Reading light,data/intake-workbook/tabs/type-reading-light.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Recessed Light Fixtures,data/intake-workbook/tabs/type-recessed-light-fixtures.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Smart Ceiling Light,data/intake-workbook/tabs/type-smart-ceiling-light.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Smart Dimmer Switch,data/intake-workbook/tabs/type-smart-dimmer-switch.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Smart Plug,data/intake-workbook/tabs/type-smart-plug.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Smart Wall Lights,data/intake-workbook/tabs/type-smart-wall-lights.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Solar Light,data/intake-workbook/tabs/type-solar-light.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Solar Lights,data/intake-workbook/tabs/type-solar-lights.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - solar Wall Light,data/intake-workbook/tabs/type-solar-wall-light.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Solar Wall Light,data/intake-workbook/tabs/type-solar-wall-light.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Spike,data/intake-workbook/tabs/type-spike.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Spike Mount,data/intake-workbook/tabs/type-spike-mount.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Spot Light,data/intake-workbook/tabs/type-spot-light.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Spot Light Fixture,data/intake-workbook/tabs/type-spot-light-fixture.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Step Light,data/intake-workbook/tabs/type-step-light.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - String Lights,data/intake-workbook/tabs/type-string-lights.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Strip and Rope Light,data/intake-workbook/tabs/type-strip-and-rope-light.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Strip light,data/intake-workbook/tabs/type-strip-light.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Strip Light,data/intake-workbook/tabs/type-strip-light.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Table Lamp,data/intake-workbook/tabs/type-table-lamp.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Table Lamps,data/intake-workbook/tabs/type-table-lamps.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Timer,data/intake-workbook/tabs/type-timer.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Touch Dimmer,data/intake-workbook/tabs/type-touch-dimmer.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Transformer,data/intake-workbook/tabs/type-transformer.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Transformer Accessories,data/intake-workbook/tabs/type-transformer-accessories.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Under Cabinet Light,data/intake-workbook/tabs/type-under-cabinet-light.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Undercabinet Light,data/intake-workbook/tabs/type-undercabinet-light.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Underwater Light Fixture,data/intake-workbook/tabs/type-underwater-light-fixture.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Wall Lights,data/intake-workbook/tabs/type-wall-lights.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Wall Mount Fixture,data/intake-workbook/tabs/type-wall-mount-fixture.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Wedge Light Bulb,data/intake-workbook/tabs/type-wedge-light-bulb.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Weed Barrier,data/intake-workbook/tabs/type-weed-barrier.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Well Light,data/intake-workbook/tabs/type-well-light.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Well Light Fixture,data/intake-workbook/tabs/type-well-light-fixture.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Wholesale - Spot Light Fixture,data/intake-workbook/tabs/type-wholesale-spot-light-fixture.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Wire Terminals & Connectors,data/intake-workbook/tabs/type-wire-terminals-connectors.csv,Per-product-type starter intake template,No type-matched collection hints
+Type - Work Light,data/intake-workbook/tabs/type-work-light.csv,Per-product-type starter intake template,No type-matched collection hints
