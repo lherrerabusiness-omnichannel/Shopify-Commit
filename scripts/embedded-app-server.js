@@ -300,7 +300,16 @@ function getRecoveryManifests(shopContext, limit = 25) {
   }).filter(Boolean);
 }
 
-async function runImportWithInput(shopContext, inputPath, imageRoot) {
+function toBooleanLike(value, fallback = true) {
+  if (typeof value === "boolean") return value;
+  const raw = String(value || "").trim().toLowerCase();
+  if (!raw) return fallback;
+  if (["1", "true", "yes", "on", "y"].includes(raw)) return true;
+  if (["0", "false", "no", "off", "n"].includes(raw)) return false;
+  return fallback;
+}
+
+async function runImportWithInput(shopContext, inputPath, imageRoot, options = {}) {
   ensureDirs(shopContext.paths);
 
   const stamp = new Date().toISOString().replace(/[.:]/g, "-");
@@ -316,6 +325,7 @@ async function runImportWithInput(shopContext, inputPath, imageRoot) {
     "--schema", "data/shopify-metafields.product.json",
     "--store-db", "data/shopify-store-db.json",
     "--recovery-dir", shopContext.paths.recoveryDirRel,
+    "--auto-taxonomy-from-similar", String(options.autoApplyTaxonomyFromSimilar !== false),
   ];
 
   const result = await runNodeScript(args);
@@ -691,6 +701,7 @@ async function performWorkflowImport(shopContext, payload) {
   const csvContent = String(payload.csvContent || "");
   const imageRoot = String(payload.imageRoot || "assets/products").trim() || "assets/products";
   const shortDescription = String(payload.shortDescription || "").trim().slice(0, 240);
+  const autoApplyTaxonomyFromSimilar = toBooleanLike(payload.autoApplyTaxonomyFromSimilar, true);
 
   if (!csvContent.trim()) {
     return { ok: false, code: 1, error: "CSV content is empty." };
@@ -701,7 +712,9 @@ async function performWorkflowImport(shopContext, payload) {
   const inputPath = `${shopContext.paths.sessionDirRel}/upload.embedded.${stamp}.csv`;
   fs.writeFileSync(path.resolve(process.cwd(), inputPath), csvContent, "utf8");
 
-  const result = await runImportWithInput(shopContext, inputPath, imageRoot);
+  const result = await runImportWithInput(shopContext, inputPath, imageRoot, {
+    autoApplyTaxonomyFromSimilar,
+  });
 
   shopContext.workflowState.lastImport = {
     ok: result.ok,
@@ -709,6 +722,7 @@ async function performWorkflowImport(shopContext, payload) {
     stdout: result.stdout,
     stderr: result.stderr,
     shortDescription,
+    autoApplyTaxonomyFromSimilar,
     inputPath: toPosixPath(inputPath),
     outputPath: toPosixPath(result.outputPath),
     reportPath: toPosixPath(result.reportPath),
@@ -727,6 +741,7 @@ async function performWorkflowImport(shopContext, payload) {
     stdout: result.stdout,
     stderr: result.stderr,
     shortDescription,
+    autoApplyTaxonomyFromSimilar,
     inputPath: toPosixPath(inputPath),
     outputPath: toPosixPath(result.outputPath),
     reportPath: toPosixPath(result.reportPath),

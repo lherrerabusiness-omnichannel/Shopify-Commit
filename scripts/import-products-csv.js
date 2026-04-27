@@ -29,6 +29,8 @@ const IMAGE_VALIDATION_DEFAULTS = {
   minHeight: 800,
 };
 
+const CLASSIFICATION_NOTICE = "Final classification stays under your control before publishing.";
+
 const runState = {
   runId: "",
   stage: "init",
@@ -52,6 +54,7 @@ function parseArgs(argv) {
     templateSheet: "config/always-use-templates.csv",
     storeDb: "data/shopify-store-db.json",
     recoveryDir: "data/recovery",
+    autoApplyTaxonomyFromSimilar: true,
   };
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -113,6 +116,12 @@ function parseArgs(argv) {
 
     if ((arg === "--recovery-dir" || arg === "--recovery") && argv[i + 1]) {
       args.recoveryDir = argv[i + 1];
+      i += 1;
+      continue;
+    }
+
+    if ((arg === "--auto-taxonomy-from-similar" || arg === "--taxonomy-similar") && argv[i + 1]) {
+      args.autoApplyTaxonomyFromSimilar = toBool(argv[i + 1], true);
       i += 1;
       continue;
     }
@@ -459,9 +468,10 @@ function normalizeComparable(value) {
   return normalizeText(value).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
-function mapProductType(input, schema) {
+function mapProductType(input, schema, options = {}) {
   const raw = normalizeText(input);
   const existing = Array.isArray(schema?.productTypes) ? schema.productTypes : [];
+  const allowSimilarMapping = options.autoApplyTaxonomyFromSimilar !== false;
 
   if (!raw || existing.length === 0) {
     return {
@@ -469,6 +479,7 @@ function mapProductType(input, schema) {
       matchedExisting: !raw,
       createdNew: Boolean(raw),
       source: raw,
+      mapMethod: raw ? "input-new" : "blank",
     };
   }
 
@@ -480,6 +491,17 @@ function mapProductType(input, schema) {
       matchedExisting: true,
       createdNew: false,
       source: raw,
+      mapMethod: "mapped-exact",
+    };
+  }
+
+  if (!allowSimilarMapping) {
+    return {
+      value: raw,
+      matchedExisting: false,
+      createdNew: true,
+      source: raw,
+      mapMethod: "input-new",
     };
   }
 
@@ -505,6 +527,7 @@ function mapProductType(input, schema) {
       matchedExisting: true,
       createdNew: false,
       source: raw,
+      mapMethod: "mapped-similar",
     };
   }
 
@@ -513,6 +536,7 @@ function mapProductType(input, schema) {
     matchedExisting: false,
     createdNew: true,
     source: raw,
+    mapMethod: "input-new",
   };
 }
 
@@ -1774,6 +1798,7 @@ function convertRows(rows, options) {
 
   const products = [];
   const reportRows = [];
+  const autoApplyTaxonomyFromSimilar = options.autoApplyTaxonomyFromSimilar !== false;
 
   for (const group of groups.values()) {
     const duplicateSkuIssues = collectVariantSkuIssues(group.variants, group.groupId);
@@ -1791,7 +1816,9 @@ function convertRows(rows, options) {
 
     const aliasProductType = resolveProductTypeAlias(group, options.rules);
     const desiredProductType = aliasProductType || group.productType || "Lighting";
-    const mappedProductType = mapProductType(desiredProductType, options.schema);
+    const mappedProductType = mapProductType(desiredProductType, options.schema, {
+      autoApplyTaxonomyFromSimilar,
+    });
     group.mappedProductType = mappedProductType;
     const productType = mappedProductType.value || desiredProductType || "Lighting";
     const categoryProfile = getCategoryProfile(productType, options.rules);
@@ -1813,6 +1840,7 @@ function convertRows(rows, options) {
       productTypeNeedsReview,
       group.metafieldFixPrompts,
     );
+    fixPrompts.push(CLASSIFICATION_NOTICE);
 
     group.tags.add("ai-generated-draft");
     group.tags.add("import-csv");
@@ -1941,6 +1969,8 @@ function convertRows(rows, options) {
         mappedDynamicMetafields: group.dynamicMetafields.map((m) => `${m.namespace}.${m.key}`),
         inferredFields: group.inferredFields,
         mappedProductType,
+        taxonomyAutoApplyFromSimilar: autoApplyTaxonomyFromSimilar,
+        classificationNotice: CLASSIFICATION_NOTICE,
         matchedCollections: combinedMatchedCollections,
         autoAppliedTags: combinedAutoTags,
         categoryProfile: productType,
@@ -1965,7 +1995,9 @@ function convertRows(rows, options) {
       price_sample: group.variants.find((v) => v.price)?.price || "",
       lumen_output: group.specs.lumen_output || "",
       product_type: productType || "",
-      product_type_source: mappedProductType.matchedExisting ? "mapped-existing" : (mappedProductType.value ? "input-new" : "blank"),
+      product_type_source: mappedProductType.mapMethod || (mappedProductType.matchedExisting ? "mapped-existing" : (mappedProductType.value ? "input-new" : "blank")),
+      auto_taxonomy_similar: autoApplyTaxonomyFromSimilar ? "yes" : "no",
+      classification_notice: CLASSIFICATION_NOTICE,
       category_profile: productType || "",
       use_brand_profile: defaults.useBrandProfile ? "yes" : "no",
       brand_profile: defaults.brandProfile,
@@ -2021,6 +2053,8 @@ function writeReportCsv(filePath, rows) {
     "lumen_output",
     "product_type",
     "product_type_source",
+    "auto_taxonomy_similar",
+    "classification_notice",
     "category_profile",
     "use_brand_profile",
     "brand_profile",
@@ -2135,6 +2169,7 @@ function writeRecoverySnapshot(state, status, errorMessage = "") {
       templateSheet: normalizeText(state?.args?.templateSheet),
       storeDb: normalizeText(state?.args?.storeDb),
       recoveryDir: normalizeText(state?.args?.recoveryDir),
+      autoApplyTaxonomyFromSimilar: state?.args?.autoApplyTaxonomyFromSimilar !== false,
     },
     summary: {
       rowCount: Array.isArray(state?.rows) ? state.rows.length : 0,
@@ -2184,6 +2219,7 @@ function main() {
     brandProfile,
     templates,
     storeDb,
+    autoApplyTaxonomyFromSimilar: args.autoApplyTaxonomyFromSimilar,
   });
   runState.products = products;
   runState.reportRows = reportRows;
@@ -2205,6 +2241,7 @@ function main() {
   console.log(`Brand sheet: ${brandProfile.loaded ? args.brandSheet : "not found (skipped)"}`);
   console.log(`Template sheet: ${templates.loaded ? args.templateSheet : "not found (skipped)"}`);
   console.log(`Store DB: ${storeDb.loaded ? args.storeDb : "not found (skipped)"}`);
+  console.log(`Auto taxonomy from similar product types: ${args.autoApplyTaxonomyFromSimilar ? "enabled" : "disabled"}`);
   console.log(`Output JSON: ${toPosixPath(path.relative(process.cwd(), outputPath))}`);
   console.log(`Review report: ${toPosixPath(path.relative(process.cwd(), reportPath))}`);
 

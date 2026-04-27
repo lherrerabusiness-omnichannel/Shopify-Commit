@@ -223,6 +223,17 @@ Open Face quick-start UX (C2-03):
   - Expandable optional sections for onboarding checks, diagnostics export, and advanced workflow controls
 - Quick path uses the same import engine and preserves advanced controls for power users.
 
+Taxonomy auto-apply from similar product types (C2-04):
+
+- Quick path now includes a taxonomy profile control:
+  - `Auto-apply taxonomy when similar product type match is found`
+- Import pipeline accepts this setting and records it in workflow/report output:
+  - `auto_taxonomy_similar` (`yes|no`)
+  - `classification_notice`
+- Subtle seller responsibility notice is always included:
+  - `Final classification stays under your control before publishing.`
+- Similar taxonomy matching can be disabled per run while preserving exact-match mapping behavior.
+
 Per-shop data partitioning (C1-01):
 
 - Embedded workflow runtime state is now isolated by shop context.

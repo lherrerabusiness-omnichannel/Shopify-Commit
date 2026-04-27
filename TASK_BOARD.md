@@ -278,6 +278,16 @@
 - Artifacts:
   1. C2-03_VERIFICATION.md
 
+### C2-04 - Taxonomy auto-apply profile control
+- Status: DONE
+- Estimate: 8h
+- Scope:
+  - Add quick-path toggle to auto-apply taxonomy from similar product-type matches.
+  - Keep classification under seller control with subtle due-diligence guidance.
+  - Persist toggle state and classification notice in workflow/report outputs.
+- Artifacts:
+  1. C2-04_VERIFICATION.md
+
 ## Weekly Cadence
 
 - Session 1 (2h): Build task

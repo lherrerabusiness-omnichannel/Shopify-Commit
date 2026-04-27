@@ -550,6 +550,13 @@
             <div>
               <label for="quickDescriptionInput" style="display:block;font-size:0.78rem;color:var(--sub);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.04em;">Short listing goal (optional)</label>
               <textarea id="quickDescriptionInput" class="quick-input" rows="5" placeholder="Example: clean and clear listing copy for modern brass wall light, warm tone, highlight easy install."></textarea>
+              <div class="inline" style="margin-top:8px;">
+                <label style="font-size:0.79rem; color:#4f5965;">
+                  <input id="quickTaxonomyAutoToggle" type="checkbox" checked />
+                  Auto-apply taxonomy when similar product type match is found
+                </label>
+              </div>
+              <div class="quick-note" id="quickClassificationNotice">Final classification stays under your control before publishing.</div>
               <div class="btns" style="margin-top:8px;">
                 <button class="btn primary" id="quickGenerateBtn" type="button">Generate Listing Draft</button>
                 <button class="btn" id="quickConnectionBtn" type="button">Check Connection</button>
@@ -730,6 +737,8 @@
     const quickCsvInput = document.getElementById("quickCsvInput");
     const quickFileMeta = document.getElementById("quickFileMeta");
     const quickDescriptionInput = document.getElementById("quickDescriptionInput");
+    const quickTaxonomyAutoToggle = document.getElementById("quickTaxonomyAutoToggle");
+    const quickClassificationNotice = document.getElementById("quickClassificationNotice");
     const quickGenerateBtn = document.getElementById("quickGenerateBtn");
     const quickConnectionBtn = document.getElementById("quickConnectionBtn");
     const quickDiagnosticsBtn = document.getElementById("quickDiagnosticsBtn");
@@ -758,6 +767,7 @@
     let latestOnboarding = null;
     let latestDiagnostics = null;
     let selectedCsvFile = null;
+    const classificationNoticeText = "Final classification stays under your control before publishing.";
 
     function getParams() {
       const p = new URLSearchParams(window.location.search);
@@ -1173,6 +1183,9 @@
       const lines = [header];
       if (!payload) return lines.join("\n");
       if (payload.shortDescription) lines.push(`short_goal: ${payload.shortDescription}`);
+      if (typeof payload.autoApplyTaxonomyFromSimilar === "boolean") {
+        lines.push(`taxonomy_auto_similar: ${payload.autoApplyTaxonomyFromSimilar}`);
+      }
       if (payload.outputPath) lines.push(`output: ${payload.outputPath}`);
       if (payload.reportPath) lines.push(`report: ${payload.reportPath}`);
       if (payload.mode) lines.push(`mode: ${payload.mode}`);
@@ -1301,6 +1314,9 @@
         if (importState && importState.shortDescription) {
           statusParts.push(`short_goal: ${importState.shortDescription}`);
         }
+        if (importState && typeof importState.autoApplyTaxonomyFromSimilar === "boolean") {
+          statusParts.push(`taxonomy_auto_similar: ${importState.autoApplyTaxonomyFromSimilar}`);
+        }
         workflowStatus.textContent = statusParts.join("\n");
       } catch {
         workflowStatus.textContent = "Could not load workflow latest state.";
@@ -1376,10 +1392,12 @@
       try {
         const csvContent = await activeCsv.text();
         const shortDescription = String(quickDescriptionInput.value || "").trim().slice(0, 240);
+        const autoApplyTaxonomyFromSimilar = Boolean(quickTaxonomyAutoToggle.checked);
         const payload = {
           csvContent,
           imageRoot: workflowImageRoot.value || "assets/products",
           shortDescription,
+          autoApplyTaxonomyFromSimilar,
         };
 
         if (workflowAsyncToggle.checked) {
@@ -1404,7 +1422,7 @@
         }
 
         quickStatus.textContent = origin === "quick"
-          ? "Draft generated. Review rows below, then push dry before live."
+          ? `Draft generated. Taxonomy auto-similar is ${autoApplyTaxonomyFromSimilar ? "on" : "off"}. Review rows below, then push dry before live.`
           : "Import completed. Quick path is ready for your next file.";
 
         await loadWorkflowLatest();
@@ -1574,6 +1592,7 @@
     });
 
     quickGenerateBtn.addEventListener("click", () => runWorkflowImport("quick"));
+    quickClassificationNotice.textContent = classificationNoticeText;
     quickConnectionBtn.addEventListener("click", checkQuickConnection);
     quickDiagnosticsBtn.addEventListener("click", async () => {
       await exportDiagnosticsBundle();
