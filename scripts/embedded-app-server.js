@@ -701,6 +701,212 @@ function readStoreProductTypes() {
   }
 }
 
+function readStoreDb() {
+  if (!fs.existsSync(STORE_DB_PATH)) {
+    return {
+      productTypes: [],
+      productTypeAliases: [],
+      categoryProfiles: {},
+      collectionHintsByProductType: {},
+    };
+  }
+  try {
+    const value = JSON.parse(fs.readFileSync(STORE_DB_PATH, "utf8"));
+    return {
+      productTypes: Array.isArray(value.productTypes) ? value.productTypes : [],
+      productTypeAliases: Array.isArray(value.productTypeAliases) ? value.productTypeAliases : [],
+      categoryProfiles: value.categoryProfiles && typeof value.categoryProfiles === "object" ? value.categoryProfiles : {},
+      collectionHintsByProductType: value.collectionHintsByProductType && typeof value.collectionHintsByProductType === "object"
+        ? value.collectionHintsByProductType
+        : {},
+    };
+  } catch {
+    return {
+      productTypes: [],
+      productTypeAliases: [],
+      categoryProfiles: {},
+      collectionHintsByProductType: {},
+    };
+  }
+}
+
+function normalizeComparable(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function getStoreDbTypeHints(productType, storeDb) {
+  const byType = storeDb && storeDb.collectionHintsByProductType && typeof storeDb.collectionHintsByProductType === "object"
+    ? storeDb.collectionHintsByProductType
+    : {};
+  if (!productType) {
+    return {
+      suggestedTags: [],
+      matchingCollections: [],
+    };
+  }
+  const exact = byType[productType];
+  if (exact && typeof exact === "object") {
+    return {
+      suggestedTags: Array.isArray(exact.suggestedTags) ? exact.suggestedTags.map((x) => String(x || "").trim()).filter(Boolean) : [],
+      matchingCollections: Array.isArray(exact.matchingCollections)
+        ? exact.matchingCollections.map((x) => String(x || "").trim()).filter(Boolean)
+        : [],
+    };
+  }
+  const norm = normalizeComparable(productType);
+  const fallback = Object.entries(byType).find(([key]) => normalizeComparable(key) === norm);
+  if (!fallback) {
+    return {
+      suggestedTags: [],
+      matchingCollections: [],
+    };
+  }
+  const bucket = fallback[1] && typeof fallback[1] === "object" ? fallback[1] : {};
+  return {
+    suggestedTags: Array.isArray(bucket.suggestedTags) ? bucket.suggestedTags.map((x) => String(x || "").trim()).filter(Boolean) : [],
+    matchingCollections: Array.isArray(bucket.matchingCollections)
+      ? bucket.matchingCollections.map((x) => String(x || "").trim()).filter(Boolean)
+      : [],
+  };
+}
+
+function getCategoryProfileForType(productType, storeDb) {
+  const profiles = storeDb && storeDb.categoryProfiles && typeof storeDb.categoryProfiles === "object"
+    ? storeDb.categoryProfiles
+    : {};
+  return profiles[productType] || profiles.default || {
+    requiredFields: ["sku", "price", "base_type", "wattage", "voltage", "lumen_output"],
+    requiredTags: [],
+    recommendedImageConfidence: 60,
+  };
+}
+
+function resolveAliasProductTypeFromStoreDb(shortDescription, imageNames, storeDb) {
+  const aliases = Array.isArray(storeDb && storeDb.productTypeAliases) ? storeDb.productTypeAliases : [];
+  const haystack = normalizeComparable(`${String(shortDescription || "")} ${Array.isArray(imageNames) ? imageNames.join(" ") : ""}`);
+  if (!haystack) return "";
+  for (const alias of aliases) {
+    const target = String(alias && alias.target || "").trim();
+    const matchAny = Array.isArray(alias && alias.matchAny) ? alias.matchAny : [];
+    if (!target || !matchAny.length) continue;
+    const matched = matchAny.some((needle) => {
+      const token = normalizeComparable(needle);
+      return token && haystack.includes(token);
+    });
+    if (matched) return target;
+  }
+  return "";
+}
+
+function inferSignalsFromContext(shortDescription, imageNames, productType) {
+  const joined = `${String(shortDescription || "")} ${Array.isArray(imageNames) ? imageNames.join(" ") : ""} ${String(productType || "")}`;
+  const normalized = normalizeComparable(joined);
+  const upper = String(joined || "").toUpperCase();
+
+  const voltageMatch = upper.match(/\b(12|24|110|120|220|230|240)\s?V\b/);
+  const wattageMatch = upper.match(/\b([1-9][0-9]{0,2})\s?W\b/);
+  const lumenMatch = upper.match(/\b([1-9][0-9]{1,4})\s?(LM|LUMEN)\b/);
+  const colorTempMatch = upper.match(/\b(2200|2400|2700|3000|3500|4000|5000|6500)\s?K\b/);
+  const ipMatch = upper.match(/\bIP\s?([0-9]{2})\b/);
+  const baseMatch = upper.match(/\b(MR16|MR11|MR8|PAR36|GU10|GU5\.3|E26|E27|G4)\b/);
+
+  let material = "";
+  const materialCandidates = ["brass", "bronze", "aluminum", "steel", "copper", "plastic"];
+  for (const item of materialCandidates) {
+    if (normalized.includes(item)) {
+      material = item;
+      break;
+    }
+  }
+
+  const suggestedTags = [];
+  if (normalized.includes("outdoor") || normalized.includes("landscape")) suggestedTags.push("outdoor-lighting");
+  if (normalized.includes("well") && normalized.includes("light")) suggestedTags.push("well-light");
+  if (normalized.includes("low voltage") || normalized.includes("12v")) suggestedTags.push("12v");
+  if (material) suggestedTags.push(material);
+
+  return {
+    voltage: voltageMatch ? `${voltageMatch[1]}V` : "",
+    wattage: wattageMatch ? `${wattageMatch[1]}W` : "",
+    lumenOutput: lumenMatch ? String(lumenMatch[1]) : "",
+    colorTemp: colorTempMatch ? `${colorTempMatch[1]}K` : "",
+    ipRating: ipMatch ? `IP${ipMatch[1]}` : "",
+    baseType: baseMatch ? String(baseMatch[1]).replace("GU5.3", "GU5.3") : "",
+    material,
+    dimmable: normalized.includes("non dim") ? "no" : (normalized.includes("dimm") ? "yes" : ""),
+    suggestedTags,
+  };
+}
+
+function mergeTagList(...groups) {
+  const out = [];
+  const seen = new Set();
+  for (const group of groups) {
+    const list = splitListField(group);
+    for (const item of list) {
+      const token = String(item || "").trim();
+      if (!token) continue;
+      const key = token.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(token);
+    }
+  }
+  return out;
+}
+
+function buildStrongProductPrompt(options = {}) {
+  const shortDescription = String(options.shortDescription || "").trim();
+  const imageNames = Array.isArray(options.imageNames) ? options.imageNames.map((x) => String(x || "").trim()).filter(Boolean) : [];
+  const row = options.row && typeof options.row === "object" ? options.row : {};
+  const suggestedProductType = String(options.suggestedProductType || row.product_type || "").trim();
+  const brandProfile = options.brandProfile || createEmptyBrandProfile();
+  const templateDefaults = options.templateDefaults || null;
+  const typeHints = options.typeHints || { suggestedTags: [], matchingCollections: [] };
+  const categoryProfile = options.categoryProfile || { requiredFields: [], requiredTags: [] };
+  const inferred = options.inferred || {};
+
+  const knownFacts = [
+    `Product type candidate: ${suggestedProductType || "unknown"}`,
+    `Short goal: ${shortDescription || "(none provided)"}`,
+    `Images: ${imageNames.length ? imageNames.join(", ") : "(none)"}`,
+    `Brand: ${brandProfile.brandName || "(none)"}`,
+    `Vendor: ${brandProfile.brandVendor || "(none)"}`,
+    `Brand website: ${brandProfile.websiteUrl || "(none)"}`,
+    `Tone: ${brandProfile.tone || "expert, concise"}`,
+    `Template default description: ${templateDefaults && templateDefaults.defaultDescription || "(none)"}`,
+    `Template default price: ${templateDefaults && templateDefaults.defaultPrice || "(none)"}`,
+    `Suggested tags by catalog: ${Array.isArray(typeHints.suggestedTags) && typeHints.suggestedTags.length ? typeHints.suggestedTags.join(", ") : "(none)"}`,
+    `Matching collections by catalog: ${Array.isArray(typeHints.matchingCollections) && typeHints.matchingCollections.length ? typeHints.matchingCollections.join(", ") : "(none)"}`,
+    `Required fields for this category: ${Array.isArray(categoryProfile.requiredFields) && categoryProfile.requiredFields.length ? categoryProfile.requiredFields.join(", ") : "(none)"}`,
+    `Required tags for this category: ${Array.isArray(categoryProfile.requiredTags) && categoryProfile.requiredTags.length ? categoryProfile.requiredTags.join(", ") : "(none)"}`,
+    `Inferred specs from names/context: voltage=${inferred.voltage || ""}, wattage=${inferred.wattage || ""}, lumens=${inferred.lumenOutput || ""}, color_temp=${inferred.colorTemp || ""}, base_type=${inferred.baseType || ""}, material=${inferred.material || ""}, ip_rating=${inferred.ipRating || ""}`,
+  ];
+
+  const requestedFields = Object.keys(row).length ? Object.keys(row).join(", ") : "title, handle, description, product_type, tags, vendor, price, base_type, wattage, voltage, lumen_output, color_temp";
+
+  return [
+    "You are an expert Shopify catalog writer and data normalizer.",
+    "Use the full context below to produce production-ready product details with minimal edits required.",
+    "If a value is unknown, infer conservatively from provided evidence and avoid invented technical claims.",
+    "",
+    "Context:",
+    ...knownFacts.map((line) => `- ${line}`),
+    "",
+    "Output requirements:",
+    "- Prioritize correctness over creativity.",
+    "- Keep title concise, keyword-rich, and shopper-readable.",
+    "- Make description clear, benefit-led, and technically grounded.",
+    "- Keep product_type aligned with store taxonomy hints.",
+    "- Fill tags to improve discoverability and collection routing.",
+    "- Respect brand tone and website context.",
+    `- Return best values for: ${requestedFields}.`,
+  ].join("\n");
+}
+
 function readMetafieldDefinitions() {
   const schemaPath = path.resolve(process.cwd(), "data/shopify-metafields.product.json");
   if (!fs.existsSync(schemaPath)) return [];
@@ -867,18 +1073,62 @@ function applyAutofillToRow(row, options = {}) {
   const suggestedProductType = String(options.suggestedProductType || "").trim();
   const templateDefaults = options.templateDefaults || null;
   const brandProfile = options.brandProfile || createEmptyBrandProfile();
+  const storeDb = readStoreDb();
+  const inferred = inferSignalsFromContext(shortDescription, imageNames, suggestedProductType || next.product_type);
+
+  const effectiveProductType = firstNonEmpty([
+    suggestedProductType,
+    next.product_type,
+    templateDefaults && templateDefaults.defaultProductType,
+  ]);
+  const categoryProfile = getCategoryProfileForType(effectiveProductType, storeDb);
+  const typeHints = getStoreDbTypeHints(effectiveProductType, storeDb);
+  const mergedTags = mergeTagList(
+    next.tags,
+    templateDefaults && templateDefaults.defaultTags,
+    typeHints.suggestedTags,
+    inferred.suggestedTags,
+    Array.isArray(categoryProfile.requiredTags) ? categoryProfile.requiredTags : []
+  );
+
+  const titleLead = firstNonEmpty([
+    brandProfile.brandName,
+    brandProfile.brandVendor,
+    "",
+  ]);
+  const compactTitle = [
+    titleLead,
+    effectiveProductType,
+    inferred.baseType,
+    inferred.voltage,
+    inferred.material,
+  ].filter(Boolean).join(" ").trim();
 
   const title = firstNonEmpty([
     next.title,
+    compactTitle,
     shortDescription,
     imageNames[0] ? String(imageNames[0]).replace(/\.[a-z0-9]+$/i, "") : "",
     "New Product",
   ]).slice(0, 120);
 
+  const specParts = [
+    inferred.baseType ? `Base: ${inferred.baseType}` : "",
+    inferred.voltage ? `Voltage: ${inferred.voltage}` : "",
+    inferred.wattage ? `Wattage: ${inferred.wattage}` : "",
+    inferred.lumenOutput ? `Output: ${inferred.lumenOutput} lm` : "",
+    inferred.colorTemp ? `Color Temp: ${inferred.colorTemp}` : "",
+    inferred.material ? `Material: ${inferred.material}` : "",
+    inferred.ipRating ? `Rating: ${inferred.ipRating}` : "",
+  ].filter(Boolean);
+
   const description = firstNonEmpty([
     next.description,
     next.body_html,
     templateDefaults && templateDefaults.defaultDescription,
+    specParts.length
+      ? `${shortDescription || effectiveProductType || "Product"}. ${specParts.join("; ")}.`
+      : "",
     shortDescription,
     brandProfile.notes,
   ]);
@@ -896,10 +1146,7 @@ function applyAutofillToRow(row, options = {}) {
     next.body_html = description;
   }
   if (Object.prototype.hasOwnProperty.call(next, "product_type") && !String(next.product_type || "").trim()) {
-    next.product_type = firstNonEmpty([
-      suggestedProductType,
-      templateDefaults && templateDefaults.defaultProductType,
-    ]);
+    next.product_type = effectiveProductType;
   }
   if (Object.prototype.hasOwnProperty.call(next, "vendor") && !String(next.vendor || "").trim()) {
     next.vendor = firstNonEmpty([brandProfile.brandVendor, brandProfile.brandName]);
@@ -911,7 +1158,53 @@ function applyAutofillToRow(row, options = {}) {
     next.price = firstNonEmpty([templateDefaults && templateDefaults.defaultPrice]);
   }
   if (Object.prototype.hasOwnProperty.call(next, "tags") && !String(next.tags || "").trim()) {
-    next.tags = firstNonEmpty([templateDefaults && templateDefaults.defaultTags]);
+    next.tags = mergedTags.join("|");
+  }
+  if (Object.prototype.hasOwnProperty.call(next, "status") && !String(next.status || "").trim()) {
+    next.status = "DRAFT";
+  }
+  if (Object.prototype.hasOwnProperty.call(next, "product_title") && !String(next.product_title || "").trim()) {
+    next.product_title = title;
+  }
+  if (Object.prototype.hasOwnProperty.call(next, "title_seed") && !String(next.title_seed || "").trim()) {
+    next.title_seed = compactTitle || title;
+  }
+  if (Object.prototype.hasOwnProperty.call(next, "base_type") && !String(next.base_type || "").trim()) {
+    next.base_type = inferred.baseType;
+  }
+  if (Object.prototype.hasOwnProperty.call(next, "wattage") && !String(next.wattage || "").trim()) {
+    next.wattage = inferred.wattage;
+  }
+  if (Object.prototype.hasOwnProperty.call(next, "voltage") && !String(next.voltage || "").trim()) {
+    next.voltage = inferred.voltage;
+  }
+  if (Object.prototype.hasOwnProperty.call(next, "lumen_output") && !String(next.lumen_output || "").trim()) {
+    next.lumen_output = inferred.lumenOutput;
+  }
+  if (Object.prototype.hasOwnProperty.call(next, "color_temp") && !String(next.color_temp || "").trim()) {
+    next.color_temp = inferred.colorTemp;
+  }
+  if (Object.prototype.hasOwnProperty.call(next, "material") && !String(next.material || "").trim()) {
+    next.material = inferred.material;
+  }
+  if (Object.prototype.hasOwnProperty.call(next, "dimmable") && !String(next.dimmable || "").trim()) {
+    next.dimmable = inferred.dimmable;
+  }
+  if (Object.prototype.hasOwnProperty.call(next, "ip_rating") && !String(next.ip_rating || "").trim()) {
+    next.ip_rating = inferred.ipRating;
+  }
+  if (Object.prototype.hasOwnProperty.call(next, "source_notes") && !String(next.source_notes || "").trim()) {
+    const notes = [];
+    if (Array.isArray(typeHints.matchingCollections) && typeHints.matchingCollections.length) {
+      notes.push(`collections=${typeHints.matchingCollections.slice(0, 3).join("|")}`);
+    }
+    if (Array.isArray(categoryProfile.requiredFields) && categoryProfile.requiredFields.length) {
+      notes.push(`required_fields=${categoryProfile.requiredFields.join("|")}`);
+    }
+    if (shortDescription) {
+      notes.push(`goal=${shortDescription.slice(0, 120)}`);
+    }
+    next.source_notes = notes.join("; ");
   }
   if (Object.prototype.hasOwnProperty.call(next, "website") && !String(next.website || "").trim()) {
     next.website = brandProfile.websiteUrl;
@@ -1013,10 +1306,20 @@ function buildSuggestionSignature(shortDescription, imageNames) {
 
 function suggestProductType(shopContext, shortDescription, imageNames) {
   const productTypes = readStoreProductTypes();
+  const storeDb = readStoreDb();
   if (!productTypes.length) {
     return {
       productType: "",
       source: "none",
+    };
+  }
+
+  const aliasTarget = resolveAliasProductTypeFromStoreDb(shortDescription, imageNames, storeDb);
+  if (aliasTarget) {
+    const mapped = productTypes.find((type) => normalizeComparable(type) === normalizeComparable(aliasTarget));
+    return {
+      productType: mapped || aliasTarget,
+      source: "alias-match",
     };
   }
 
@@ -2914,6 +3217,22 @@ function createServer() {
           templateDefaults,
           brandProfile,
         });
+        const storeDb = readStoreDb();
+        const effectiveType = String(autofilledRow.product_type || suggestedProductType || "").trim();
+        const typeHints = getStoreDbTypeHints(effectiveType, storeDb);
+        const categoryProfile = getCategoryProfileForType(effectiveType, storeDb);
+        const inferred = inferSignalsFromContext(shortDescription, imageNames, effectiveType);
+        const generationPrompt = buildStrongProductPrompt({
+          shortDescription,
+          imageNames,
+          row: autofilledRow,
+          suggestedProductType: effectiveType,
+          brandProfile,
+          templateDefaults,
+          typeHints,
+          categoryProfile,
+          inferred,
+        });
         const csvContent = [
           draft.headers.map((header) => csvEscape(header)).join(","),
           draft.headers.map((header) => csvEscape(autofilledRow[header] || "")).join(","),
@@ -2932,6 +3251,12 @@ function createServer() {
             productTypes,
             metafieldSeed: buildMetafieldSeed(8),
             brandProfile,
+            generationPrompt,
+            contextSignals: {
+              categoryProfile,
+              typeHints,
+              inferred,
+            },
           },
         });
       } catch (error) {
@@ -3018,6 +3343,22 @@ function createServer() {
           templateDefaults,
           brandProfile,
         });
+        const storeDb = readStoreDb();
+        const effectiveType = String(filled.product_type || suggestedProductType || "").trim();
+        const typeHints = getStoreDbTypeHints(effectiveType, storeDb);
+        const categoryProfile = getCategoryProfileForType(effectiveType, storeDb);
+        const inferred = inferSignalsFromContext(shortDescription, imageNames, effectiveType);
+        const generationPrompt = buildStrongProductPrompt({
+          shortDescription,
+          imageNames,
+          row: filled,
+          suggestedProductType: effectiveType,
+          brandProfile,
+          templateDefaults,
+          typeHints,
+          categoryProfile,
+          inferred,
+        });
         const csvContent = [
           headers.map((header) => csvEscape(header)).join(","),
           headers.map((header) => csvEscape(filled[header] || "")).join(","),
@@ -3030,6 +3371,12 @@ function createServer() {
             row: filled,
             csvContent,
             brandProfile,
+            generationPrompt,
+            contextSignals: {
+              categoryProfile,
+              typeHints,
+              inferred,
+            },
           },
         });
       } catch (error) {

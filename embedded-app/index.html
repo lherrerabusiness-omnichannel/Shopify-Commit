@@ -615,6 +615,11 @@
               <div class="status-list" id="quickStatus">Quick path ready. Connect store, add CSV, then Generate Listing Draft.</div>
               <div class="status-list" id="pilotAuditStatus">Pilot audit idle. Import a draft to view confidence and taxonomy cues.</div>
               <div class="status-list" id="quickCsvBuilderStatus">No custom CSV generated yet.</div>
+              <div class="quick-note" style="margin-top:8px;">Generation prompt (built from images, store category rules, tags, and brand profile)</div>
+              <textarea id="quickPromptOutput" class="quick-input" rows="7" readonly placeholder="Prompt will appear automatically after image/goal analysis."></textarea>
+              <div class="btns" style="margin-top:6px;">
+                <button class="btn" id="quickCopyPromptBtn" type="button">Copy Generation Prompt</button>
+              </div>
               <div class="btns" style="margin-top:8px;">
                 <button class="btn" id="quickCustomCsvDownloadBtn" type="button">Download Custom CSV</button>
                 <button class="btn" id="quickUseCustomCsvBtn" type="button">Use Custom CSV For Generate</button>
@@ -948,6 +953,8 @@
     const quickStatus = document.getElementById("quickStatus");
     const pilotAuditStatus = document.getElementById("pilotAuditStatus");
     const quickCsvBuilderStatus = document.getElementById("quickCsvBuilderStatus");
+    const quickPromptOutput = document.getElementById("quickPromptOutput");
+    const quickCopyPromptBtn = document.getElementById("quickCopyPromptBtn");
     const quickCustomCsvDownloadBtn = document.getElementById("quickCustomCsvDownloadBtn");
     const quickUseCustomCsvBtn = document.getElementById("quickUseCustomCsvBtn");
     const quickGenerateFromReviewedBtn = document.getElementById("quickGenerateFromReviewedBtn");
@@ -986,6 +993,7 @@
     let latestSuggestedProductType = "";
     let latestSuggestionSource = "none";
     let latestBrandProfile = null;
+    let latestGenerationPrompt = "";
     let autoTemplateTimer = null;
     let autoTemplateInFlight = false;
     let uploadedImageRootCache = "";
@@ -1153,6 +1161,13 @@
       });
     }
 
+    function setGeneratedPrompt(value) {
+      latestGenerationPrompt = String(value || "").trim();
+      if (quickPromptOutput) {
+        quickPromptOutput.value = latestGenerationPrompt;
+      }
+    }
+
     function setCategoryCheckStatus(chosenProductType) {
       const chosen = String(chosenProductType || "").trim();
       const suggested = String(latestSuggestedProductType || "").trim();
@@ -1294,6 +1309,7 @@
         }
         customCsvRow = data.template.row && typeof data.template.row === "object" ? { ...data.template.row } : customCsvRow;
         customCsvContent = String(data.template.csvContent || buildCsvFromCustomState());
+        setGeneratedPrompt(data.template.generationPrompt || "");
         renderCustomCsvFields();
         quickCsvBuilderStatus.textContent = "Missing fields auto-filled using available listing, image, template, and brand context.";
         return true;
@@ -1360,6 +1376,7 @@
         customCsvHeaders = Array.isArray(data.template.headers) ? data.template.headers : [];
         customCsvRow = data.template.row && typeof data.template.row === "object" ? { ...data.template.row } : {};
         customCsvContent = String(data.template.csvContent || "");
+        setGeneratedPrompt(data.template.generationPrompt || "");
         latestSuggestedProductType = String(data.template.suggestedProductType || "");
         latestSuggestionSource = String(data.template.suggestionSource || "store-match");
         const incomingTypes = Array.isArray(data.template.productTypes) ? data.template.productTypes : [];
@@ -2587,6 +2604,19 @@
     quickCustomCsvDownloadBtn.addEventListener("click", downloadCustomCsv);
     quickUseCustomCsvBtn.addEventListener("click", useCustomCsvForImport);
     quickGenerateFromReviewedBtn.addEventListener("click", generateListingFromReviewedFields);
+    quickCopyPromptBtn.addEventListener("click", async () => {
+      const prompt = String(latestGenerationPrompt || (quickPromptOutput && quickPromptOutput.value) || "").trim();
+      if (!prompt) {
+        quickCsvBuilderStatus.textContent = "No generation prompt available yet. Add images/goal first.";
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(prompt);
+        quickCsvBuilderStatus.textContent = "Generation prompt copied to clipboard.";
+      } catch {
+        quickCsvBuilderStatus.textContent = "Could not copy prompt automatically. Select and copy manually from the prompt box.";
+      }
+    });
     brandProfileSaveBtn.addEventListener("click", saveBrandProfile);
     brandProfileRefreshBtn.addEventListener("click", loadBrandProfile);
     quickApplyProductTypeBtn.addEventListener("click", applySelectedProductTypeToCustomCsv);
