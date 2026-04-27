@@ -20,6 +20,8 @@ const CLIENT_SECRET = String(process.env.SHOPIFY_CLIENT_SECRET || "").trim();
 const DEFAULT_SCOPES = String(process.env.SHOPIFY_SCOPES || "read_products,write_products").trim();
 const REDIRECT_URI = String(process.env.EMBEDDED_SHOPIFY_REDIRECT_URI || `http://${HOST}:${PORT}/auth/callback`).trim();
 const SHOPIFY_API_VERSION = String(process.env.SHOPIFY_API_VERSION || "2025-10").trim();
+const OPENAI_API_KEY = String(process.env.OPENAI_API_KEY || "").trim();
+const OPENAI_VISION_MODEL = String(process.env.OPENAI_VISION_MODEL || "gpt-4o-mini").trim();
 const EMBEDDED_ALLOW_LIVE_PUSH = String(process.env.EMBEDDED_ALLOW_LIVE_PUSH || "false").toLowerCase() === "true";
 const PILOT_ROLLOUT_ENFORCE = String(process.env.PILOT_ROLLOUT_ENFORCE || "false").toLowerCase() === "true";
 const STORE_DB_PATH = path.resolve(process.cwd(), "data/shopify-store-db.json");
@@ -1329,33 +1331,126 @@ function readTemplateDefaults(shortDescription, imageNames) {
   }
 }
 
-function generateShortDescriptionFromContext(options = {}) {
+function imageMimeTypeFromFileName(name) {
+  const value = String(name || "").toLowerCase();
+  if (value.endsWith(".png")) return "image/png";
+  if (value.endsWith(".webp")) return "image/webp";
+  if (value.endsWith(".gif")) return "image/gif";
+  if (value.endsWith(".bmp")) return "image/bmp";
+  if (value.endsWith(".avif")) return "image/avif";
+  if (value.endsWith(".heic")) return "image/heic";
+  if (value.endsWith(".heif")) return "image/heif";
+  return "image/jpeg";
+}
+
+function resolveLocalUploadedImagePaths(imageRoot, imageNames, maxImages = 3) {
+  const root = String(imageRoot || "").trim();
+  const names = Array.isArray(imageNames)
+    ? imageNames.map((x) => String(x || "").trim()).filter(Boolean)
+    : [];
+  if (!root || !names.length) return [];
+
+  const workspaceRoot = path.resolve(process.cwd());
+  const out = [];
+  for (const name of names) {
+    const relPath = toPosixPath(path.join(root, name));
+    const absPath = path.resolve(process.cwd(), relPath);
+    if (!absPath.startsWith(workspaceRoot)) continue;
+    if (!fs.existsSync(absPath)) continue;
+    out.push({
+      name,
+      absPath,
+    });
+    if (out.length >= Math.max(1, maxImages)) break;
+  }
+  return out;
+}
+
+async function describeProductFromImagesWithVision(options = {}) {
+  if (!OPENAI_API_KEY) {
+    return "";
+  }
+
+  const imageRoot = String(options.imageRoot || "").trim();
   const imageNames = Array.isArray(options.imageNames)
     ? options.imageNames.map((x) => String(x || "").trim()).filter(Boolean)
     : [];
   const suggestedProductType = String(options.suggestedProductType || "").trim();
-  const brandProfile = options.brandProfile || createEmptyBrandProfile();
-
-  const keywordSet = new Set();
-  for (const name of imageNames) {
-    const base = String(name || "")
-      .toLowerCase()
-      .replace(/\.[a-z0-9]+$/i, "")
-      .replace(/[_-]+/g, " ")
-      .replace(/[^a-z0-9\s]/g, " ")
-      .split(/\s+/)
-      .map((x) => x.trim())
-      .filter((x) => x.length >= 3 && !["img", "image", "photo", "front", "back", "side"].includes(x));
-    for (const token of base) {
-      keywordSet.add(token);
-      if (keywordSet.size >= 6) break;
-    }
-    if (keywordSet.size >= 6) break;
+  const localImages = resolveLocalUploadedImagePaths(imageRoot, imageNames, 3);
+  if (!localImages.length) {
+    return "";
   }
 
-  const keywords = Array.from(keywordSet);
+  const userParts = [
+    {
+      type: "input_text",
+      text: [
+        "Describe what product is shown in these product photos for an ecommerce listing.",
+        "Keep it to one concise sentence between 8 and 16 words.",
+        "Do not mention file names, image names, or random IDs.",
+        "Focus on product form, material/finish, and likely use.",
+        suggestedProductType ? `Product type candidate: ${suggestedProductType}.` : "",
+      ].filter(Boolean).join(" "),
+    },
+  ];
+
+  for (const img of localImages) {
+    try {
+      const bytes = fs.readFileSync(img.absPath);
+      const mime = imageMimeTypeFromFileName(img.name);
+      userParts.push({
+        type: "input_image",
+        image_url: `data:${mime};base64,${bytes.toString("base64")}`,
+      });
+    } catch {
+      // Ignore unreadable images and continue with remaining files.
+    }
+  }
+
+  if (userParts.length <= 1) {
+    return "";
+  }
+
+  try {
+    const response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: OPENAI_VISION_MODEL,
+        input: [
+          {
+            role: "system",
+            content: "You are a product catalog assistant that writes short factual product descriptions from images.",
+          },
+          {
+            role: "user",
+            content: userParts,
+          },
+        ],
+        max_output_tokens: 80,
+      }),
+    });
+    if (!response.ok) {
+      return "";
+    }
+    const payload = await response.json();
+    const text = String(payload && payload.output_text || "").trim();
+    return text.replace(/\s+/g, " ").slice(0, 220);
+  } catch {
+    return "";
+  }
+}
+
+function generateShortDescriptionFromContext(options = {}) {
+  const suggestedProductType = String(options.suggestedProductType || "").trim();
+  const brandProfile = options.brandProfile || createEmptyBrandProfile();
+  const visionHint = String(options.visionHint || "").trim();
+
   const lead = suggestedProductType || "product listing";
-  const detail = keywords.length ? `with focus on ${keywords.join(", ")}` : "with clear specs and practical use guidance";
+  const detail = visionHint || "with clear specs, durable construction, and practical installation use";
   const brandLabel = firstNonEmpty([brandProfile.brandDisplayName, brandProfile.brandName, brandProfile.brandVendor]);
   const brandText = brandLabel ? `for ${brandLabel}` : "";
   return `${lead} ${brandText} ${detail}`.replace(/\s+/g, " ").trim();
@@ -3629,6 +3724,7 @@ function createServer() {
         const imageNames = Array.isArray(body.imageNames)
           ? body.imageNames.map((x) => String(x || "").trim()).filter(Boolean)
           : [];
+        const imageRoot = String(body.imageRoot || "").trim();
         const suggestion = suggestProductType(shopContext, "", imageNames);
         const profile = readBrandProfile(shopContext.paths.brandProfilePath);
         const fallbackProfile = readDefaultBrandProfileFromCsv();
@@ -3641,17 +3737,23 @@ function createServer() {
           websiteUrl: firstNonEmpty([profile.websiteUrl, fallbackProfile.websiteUrl]),
           profileImageUrl: firstNonEmpty([profile.profileImageUrl, fallbackProfile.profileImageUrl]),
         };
-        const generatedText = generateShortDescriptionFromContext({
+        const visionHint = await describeProductFromImagesWithVision({
+          imageRoot,
           imageNames,
           suggestedProductType: suggestion.productType,
+        });
+        const trustedSuggestion = ["alias-match", "learned-exact", "learned-similar"].includes(String(suggestion.source || ""));
+        const generatedText = generateShortDescriptionFromContext({
+          suggestedProductType: visionHint || trustedSuggestion ? suggestion.productType : "",
           brandProfile,
+          visionHint,
         });
 
         return sendJson(res, 200, {
           ok: true,
           shortDescription: generatedText,
           generated: true,
-          source: suggestion.source,
+          source: visionHint ? "vision" : suggestion.source,
         });
       } catch (error) {
         return sendJson(res, 400, { ok: false, error: String(error.message || error) });

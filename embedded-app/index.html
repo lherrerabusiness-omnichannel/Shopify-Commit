@@ -1485,9 +1485,11 @@
       if (!imageNames.length) return "";
 
       try {
+        const imageRoot = await uploadSelectedImagesIfAny();
         const res = await apiPost("/api/workflow/description/from-images", {
           shortDescription: "",
           imageNames,
+          imageRoot,
         });
         const data = await res.json();
         if (!res.ok || !data.ok) {
