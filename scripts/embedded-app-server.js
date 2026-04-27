@@ -1224,6 +1224,13 @@ function createEmptyBrandProfile() {
   };
 }
 
+function normalizeWebsiteUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (/^https?:\/\//i.test(raw)) return raw;
+  return `https://${raw}`;
+}
+
 function readBrandProfile(filePath) {
   if (!fs.existsSync(filePath)) {
     return createEmptyBrandProfile();
@@ -1235,7 +1242,7 @@ function readBrandProfile(filePath) {
       brandDisplayName: String(value.brandDisplayName || "").trim(),
       brandName: String(value.brandName || "").trim(),
       brandVendor: String(value.brandVendor || "").trim(),
-      websiteUrl: String(value.websiteUrl || "").trim(),
+      websiteUrl: normalizeWebsiteUrl(value.websiteUrl || ""),
       profileImageUrl: String(value.profileImageUrl || "").trim(),
       preset: String(value.preset || "").trim(),
       tone: String(value.tone || "").trim(),
@@ -1266,12 +1273,19 @@ function readDefaultBrandProfileFromCsv() {
     });
     const row = Array.isArray(rows) ? rows.find((x) => String(x.enabled || "").toLowerCase() === "yes") || rows[0] : null;
     if (!row) return createEmptyBrandProfile();
+    const websiteUrl = firstNonEmpty([
+      row.website_url,
+      row.brand_website,
+      row.site_url,
+      row.website,
+      row.site_link,
+    ]);
     return {
       updatedAt: "",
       brandDisplayName: String(row.brand_display_name || row.brand_name || "").trim(),
       brandName: String(row.brand_name || "").trim(),
       brandVendor: String(row.brand_vendor || "").trim(),
-      websiteUrl: String(row.website_url || row.brand_website || "").trim(),
+      websiteUrl: normalizeWebsiteUrl(websiteUrl || ""),
       profileImageUrl: String(row.profile_image_url || row.brand_image_url || "").trim(),
       preset: String(row.profile_name || "").trim(),
       tone: "",
@@ -1365,6 +1379,7 @@ function applyAutofillToRow(row, options = {}) {
   const brandProfile = options.brandProfile || createEmptyBrandProfile();
   const consistencyReference = options.consistencyReference || { fieldOptions: {} };
   const consistencyOptions = consistencyReference.fieldOptions || {};
+  const websiteUrl = String(brandProfile.websiteUrl || "").trim();
   const storeDb = readStoreDb();
   const inferred = inferSignalsFromContext(shortDescription, imageNames, suggestedProductType || next.product_type);
 
@@ -1511,12 +1526,12 @@ function applyAutofillToRow(row, options = {}) {
     }
     next.source_notes = notes.join("; ");
   }
-  if (Object.prototype.hasOwnProperty.call(next, "website") && !String(next.website || "").trim()) {
-    next.website = brandProfile.websiteUrl;
-  }
-  if (Object.prototype.hasOwnProperty.call(next, "brand_website") && !String(next.brand_website || "").trim()) {
-    next.brand_website = brandProfile.websiteUrl;
-  }
+  ["website", "brand_website", "website_url", "brand_url", "reference_url", "reference_link", "source_url"]
+    .forEach((field) => {
+      if (Object.prototype.hasOwnProperty.call(next, field) && !String(next[field] || "").trim()) {
+        next[field] = websiteUrl;
+      }
+    });
   if (Object.prototype.hasOwnProperty.call(next, "metafields_json") && !String(next.metafields_json || "").trim()) {
     next.metafields_json = JSON.stringify(buildMetafieldSeed(8));
   }
@@ -3431,7 +3446,13 @@ function createServer() {
           brandDisplayName: String(body.brandDisplayName || "").trim(),
           brandName: String(body.brandName || "").trim(),
           brandVendor: String(body.brandVendor || "").trim(),
-          websiteUrl: String(body.websiteUrl || "").trim(),
+          websiteUrl: normalizeWebsiteUrl(firstNonEmpty([
+            body.websiteUrl,
+            body.brandWebsite,
+            body.website,
+            body.siteUrl,
+            body.siteLink,
+          ])),
           profileImageUrl: String(body.profileImageUrl || "").trim(),
           preset: String(body.preset || "").trim(),
           tone: String(body.tone || "").trim(),

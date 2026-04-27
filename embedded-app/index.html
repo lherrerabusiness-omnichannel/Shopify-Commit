@@ -492,10 +492,11 @@
   <div class="wrap">
     <aside class="nav">
       <h3>Workflow</h3>
-      <button class="active" type="button">Quick Start</button>
-      <button type="button">Review Draft</button>
-      <button type="button">Fix and Recover</button>
-      <button type="button">Support Logs</button>
+      <button class="active" id="navQuickStartBtn" type="button">Quick Start</button>
+      <button id="navProfileBtn" type="button">Profile</button>
+      <button id="navReviewBtn" type="button">Review Draft</button>
+      <button id="navRecoveryBtn" type="button">Fix and Recover</button>
+      <button id="navSupportBtn" type="button">Support Logs</button>
     </aside>
 
     <main class="content">
@@ -539,7 +540,7 @@
           </div>
         </details>
 
-        <details class="expando">
+        <details class="expando" id="brandProfileSection">
           <summary>Brand profile and presets (optional)</summary>
           <div class="expando-body">
             <div class="workflow" style="margin-top:0;">
@@ -550,9 +551,12 @@
                 <input id="brandVendorInput" type="text" placeholder="Brand vendor" />
               </div>
               <div class="inline">
-                <input id="brandWebsiteInput" type="text" placeholder="Brand website URL (reference for personalized listing context)" />
+                <input id="brandWebsiteInput" type="url" placeholder="Brand website link (e.g., https://example.com)" />
                 <input id="brandProfileImageUrlInput" type="text" placeholder="Brand profile image / logo URL" />
                 <input id="brandPresetInput" type="text" placeholder="Preset name (e.g., premium-outdoor)" />
+              </div>
+              <div class="inline" style="margin-top:6px;">
+                <a id="brandWebsitePreview" href="#" target="_blank" rel="noopener noreferrer" style="display:none;font-size:0.79rem;">Open brand website reference</a>
               </div>
               <div class="inline" style="margin-top:6px;">
                 <img id="brandProfileImagePreview" alt="Brand profile preview" style="display:none;max-height:48px;max-width:120px;border:1px solid var(--line);border-radius:6px;background:#fff;" />
@@ -570,7 +574,7 @@
           </div>
         </details>
 
-        <div class="quick-stage">
+        <div class="quick-stage" id="quickStageSection">
           <h3>Open Face Quick Path</h3>
           <p>Start with images and a short goal. Then generate a custom CSV draft, review/edit fields, and generate listing drafts.</p>
           <div class="quick-note" style="margin-bottom:10px;">
@@ -663,7 +667,7 @@
           </div>
         </div>
 
-        <details class="expando" open>
+        <details class="expando" open id="reviewDraftSection">
           <summary>Onboarding and readiness (optional)</summary>
           <div class="expando-body">
             <div class="workflow" style="margin-top:0;">
@@ -692,7 +696,7 @@
           </div>
         </details>
 
-        <details class="expando">
+        <details class="expando" id="recoverySection">
           <summary>Diagnostics and support handoff (optional)</summary>
           <div class="expando-body">
             <div class="workflow" style="margin-top:0;">
@@ -707,7 +711,7 @@
           </div>
         </details>
 
-        <details class="expando">
+        <details class="expando" id="supportLogsSection">
           <summary>Pilot rollout controls (optional)</summary>
           <div class="expando-body">
             <div class="workflow" style="margin-top:0;">
@@ -895,10 +899,21 @@
     const runBootstrapBtn = document.getElementById("runBootstrapBtn");
     const refreshBootstrapBtn = document.getElementById("refreshBootstrapBtn");
     const bootstrapStatus = document.getElementById("bootstrapStatus");
+    const navQuickStartBtn = document.getElementById("navQuickStartBtn");
+    const navProfileBtn = document.getElementById("navProfileBtn");
+    const navReviewBtn = document.getElementById("navReviewBtn");
+    const navRecoveryBtn = document.getElementById("navRecoveryBtn");
+    const navSupportBtn = document.getElementById("navSupportBtn");
+    const quickStageSection = document.getElementById("quickStageSection");
+    const brandProfileSection = document.getElementById("brandProfileSection");
+    const reviewDraftSection = document.getElementById("reviewDraftSection");
+    const recoverySection = document.getElementById("recoverySection");
+    const supportLogsSection = document.getElementById("supportLogsSection");
     const brandDisplayNameInput = document.getElementById("brandDisplayNameInput");
     const brandNameInput = document.getElementById("brandNameInput");
     const brandVendorInput = document.getElementById("brandVendorInput");
     const brandWebsiteInput = document.getElementById("brandWebsiteInput");
+    const brandWebsitePreview = document.getElementById("brandWebsitePreview");
     const brandProfileImageUrlInput = document.getElementById("brandProfileImageUrlInput");
     const brandProfileImagePreview = document.getElementById("brandProfileImagePreview");
     const brandPresetInput = document.getElementById("brandPresetInput");
@@ -1019,6 +1034,21 @@
 
     function writeDebug(lines) {
       debugOutput.textContent = lines.filter(Boolean).join("\n");
+    }
+
+    function activateNavButton(activeButton) {
+      [navQuickStartBtn, navProfileBtn, navReviewBtn, navRecoveryBtn, navSupportBtn]
+        .filter(Boolean)
+        .forEach((btn) => btn.classList.toggle("active", btn === activeButton));
+    }
+
+    function openSectionAndFocus(section, activeButton) {
+      if (!section) return;
+      if (section.tagName && section.tagName.toLowerCase() === "details") {
+        section.open = true;
+      }
+      activateNavButton(activeButton);
+      section.scrollIntoView({ behavior: "smooth", block: "start" });
     }
 
     const params = getParams();
@@ -1266,6 +1296,26 @@
       brandProfileImagePreview.style.display = "block";
     }
 
+    function normalizeWebsiteUrl(url) {
+      const raw = String(url || "").trim();
+      if (!raw) return "";
+      if (/^https?:\/\//i.test(raw)) return raw;
+      return `https://${raw}`;
+    }
+
+    function renderBrandWebsitePreview(url) {
+      if (!brandWebsitePreview) return;
+      const href = normalizeWebsiteUrl(url);
+      if (!href) {
+        brandWebsitePreview.style.display = "none";
+        brandWebsitePreview.setAttribute("href", "#");
+        return;
+      }
+      brandWebsitePreview.style.display = "inline";
+      brandWebsitePreview.setAttribute("href", href);
+      brandWebsitePreview.textContent = `Open brand website reference (${href})`;
+    }
+
     async function loadBrandProfile() {
       try {
         const res = await apiGet("/api/brand-profile/latest");
@@ -1283,6 +1333,7 @@
         brandPresetInput.value = p.preset || "";
         brandToneInput.value = p.tone || "";
         brandNotesInput.value = p.notes || "";
+        renderBrandWebsitePreview(p.websiteUrl || "");
         renderBrandProfileImagePreview(p.profileImageUrl || "");
         brandProfileStatus.textContent = summarizeBrandProfile(latestBrandProfile);
       } catch (error) {
@@ -1297,7 +1348,7 @@
           brandDisplayName: String(brandDisplayNameInput.value || "").trim(),
           brandName: String(brandNameInput.value || "").trim(),
           brandVendor: String(brandVendorInput.value || "").trim(),
-          websiteUrl: String(brandWebsiteInput.value || "").trim(),
+          websiteUrl: normalizeWebsiteUrl(brandWebsiteInput.value || ""),
           profileImageUrl: String(brandProfileImageUrlInput.value || "").trim(),
           preset: String(brandPresetInput.value || "").trim(),
           tone: String(brandToneInput.value || "").trim(),
@@ -1309,6 +1360,8 @@
           throw new Error(data.error || "Could not save brand profile.");
         }
         latestBrandProfile = data.brandProfile || null;
+        brandWebsiteInput.value = (latestBrandProfile && latestBrandProfile.websiteUrl) || "";
+        renderBrandWebsitePreview((latestBrandProfile && latestBrandProfile.websiteUrl) || "");
         renderBrandProfileImagePreview((latestBrandProfile && latestBrandProfile.profileImageUrl) || "");
         brandProfileStatus.textContent = summarizeBrandProfile(latestBrandProfile);
       } catch (error) {
@@ -2634,6 +2687,10 @@
       renderBrandProfileImagePreview(brandProfileImageUrlInput.value || "");
     });
 
+    brandWebsiteInput.addEventListener("input", () => {
+      renderBrandWebsitePreview(brandWebsiteInput.value || "");
+    });
+
     quickProductTypeInput.addEventListener("input", () => {
       setCategoryCheckStatus(quickProductTypeInput.value);
     });
@@ -2649,6 +2706,12 @@
         setSelectedCsvFile(file, "advanced picker");
       }
     });
+
+    navQuickStartBtn.addEventListener("click", () => openSectionAndFocus(quickStageSection, navQuickStartBtn));
+    navProfileBtn.addEventListener("click", () => openSectionAndFocus(brandProfileSection, navProfileBtn));
+    navReviewBtn.addEventListener("click", () => openSectionAndFocus(reviewDraftSection, navReviewBtn));
+    navRecoveryBtn.addEventListener("click", () => openSectionAndFocus(recoverySection, navRecoveryBtn));
+    navSupportBtn.addEventListener("click", () => openSectionAndFocus(supportLogsSection, navSupportBtn));
 
     quickGenerateBtn.addEventListener("click", () => runWorkflowImport("quick"));
     quickTemplateDownloadBtn.addEventListener("click", downloadBaseTemplateCsv);
