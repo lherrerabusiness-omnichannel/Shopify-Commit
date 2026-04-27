@@ -2338,6 +2338,7 @@
       workflowImportBtn.disabled = true;
       quickGenerateBtn.disabled = true;
       try {
+        let importResult = null;
         const csvContent = await activeCsv.text();
         const shortDescription = String(quickDescriptionInput.value || "").trim().slice(0, 240);
         const autoApplyTaxonomyFromSimilar = Boolean(quickTaxonomyAutoToggle.checked);
@@ -2356,6 +2357,7 @@
           workflowStatus.textContent = `Started background import job ${job.id}.`;
           const completed = await waitForJob(job.id);
           const out = completed.result || {};
+          importResult = out;
           renderWorkflowRows(out.rows || []);
           pilotAuditStatus.textContent = summarizePilotAudit(out.pilotAudit || null);
           workflowStatus.textContent = summarizeWorkflowOutput(
@@ -2365,6 +2367,7 @@
         } else {
           const res = await apiPost("/api/workflow/import", payload);
           const data = await res.json();
+          importResult = data;
           renderWorkflowRows(data.rows || []);
           pilotAuditStatus.textContent = summarizePilotAudit(data.pilotAudit || null);
           workflowStatus.textContent = summarizeWorkflowOutput(
@@ -2373,9 +2376,26 @@
           );
         }
 
-        quickStatus.textContent = origin === "quick"
-          ? `Draft generated. Using image root: ${imageRoot}. Taxonomy auto-similar is ${autoApplyTaxonomyFromSimilar ? "on" : "off"}. Review rows below, then push dry before live.`
-          : "Import completed. Quick path is ready for your next file.";
+        if ((origin === "quick" || origin === "quick-reviewed") && importResult && importResult.ok) {
+          const pushPayload = {
+            mode: "dry",
+            outputPath: String(importResult.outputPath || "").trim(),
+          };
+          const pushRes = await apiPost("/api/workflow/push", pushPayload);
+          const pushData = await pushRes.json();
+          if (!pushRes.ok || !pushData.ok) {
+            throw new Error(pushData.error || "Draft push failed after import.");
+          }
+          workflowStatus.textContent = summarizeWorkflowOutput(
+            "Generate/import completed and draft pushed to Shopify.",
+            importResult,
+          );
+          quickStatus.textContent = "Draft pushed to Shopify (dry mode). Open your Shopify products to review wording and details.";
+        } else {
+          quickStatus.textContent = origin === "quick"
+            ? `Draft generated. Using image root: ${imageRoot}. Taxonomy auto-similar is ${autoApplyTaxonomyFromSimilar ? "on" : "off"}. Review rows below, then push dry before live.`
+            : "Import completed. Quick path is ready for your next file.";
+        }
 
         await loadWorkflowLatest();
         await loadJobsLatest();
