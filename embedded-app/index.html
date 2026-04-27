@@ -986,6 +986,10 @@
     let latestSuggestedProductType = "";
     let latestSuggestionSource = "none";
     let latestBrandProfile = null;
+    let autoTemplateTimer = null;
+    let autoTemplateInFlight = false;
+    let uploadedImageRootCache = "";
+    let uploadedImageSignature = "";
     const classificationNoticeText = "Final classification stays under your control before publishing.";
 
     function getParams() {
@@ -1072,6 +1076,11 @@
     function setSelectedImageFiles(files, sourceLabel) {
       const list = Array.from(files || []).filter((file) => isLikelyImageFile(file));
       selectedImageFiles = list;
+      const signature = list.map((file) => `${String(file.name || "")}::${Number(file.size || 0)}`).join("|");
+      if (signature !== uploadedImageSignature) {
+        uploadedImageSignature = signature;
+        uploadedImageRootCache = "";
+      }
       quickImageMeta.textContent = list.length
         ? `${describeImageFiles(list)} via ${sourceLabel}.`
         : "No images selected yet (optional).";
@@ -1371,6 +1380,56 @@
       }
     }
 
+    async function ensureShortDescriptionFromImagesIfEmpty() {
+      const current = String(quickDescriptionInput.value || "").trim();
+      if (current) return current;
+      const imageNames = selectedImageFiles.map((file) => String(file.name || "")).filter(Boolean);
+      if (!imageNames.length) return "";
+
+      try {
+        const res = await apiPost("/api/workflow/description/from-images", {
+          shortDescription: "",
+          imageNames,
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+          throw new Error(data.error || "Could not generate short description.");
+        }
+        const generated = String(data.shortDescription || "").trim();
+        if (generated && !String(quickDescriptionInput.value || "").trim()) {
+          quickDescriptionInput.value = generated;
+          quickStatus.textContent = "Short description was auto-generated from images. Review and edit if needed.";
+        }
+        return generated;
+      } catch {
+        return "";
+      }
+    }
+
+    function scheduleAutoTemplateGeneration(reason = "") {
+      if (autoTemplateTimer) {
+        window.clearTimeout(autoTemplateTimer);
+      }
+      autoTemplateTimer = window.setTimeout(async () => {
+        if (autoTemplateInFlight) return;
+        const imageNames = selectedImageFiles.map((file) => String(file.name || "")).filter(Boolean);
+        const shortDescription = String(quickDescriptionInput.value || "").trim();
+        if (!imageNames.length && !shortDescription) return;
+
+        autoTemplateInFlight = true;
+        try {
+          await ensureShortDescriptionFromImagesIfEmpty();
+          const hasInputs = selectedImageFiles.length > 0 || String(quickDescriptionInput.value || "").trim();
+          if (!hasInputs) return;
+          await generateCustomCsvFromImagesAndGoal();
+          await autofillMissingReviewedFields();
+          quickCsvBuilderStatus.textContent = `Auto-filled from available context (${reason || "auto"}). Review fields and generate when ready.`;
+        } finally {
+          autoTemplateInFlight = false;
+        }
+      }, 550);
+    }
+
     function downloadCustomCsv() {
       const content = customCsvContent || buildCsvFromCustomState();
       if (!content) {
@@ -1456,6 +1515,10 @@
         return "";
       }
 
+      if (uploadedImageRootCache && uploadedImageSignature) {
+        return uploadedImageRootCache;
+      }
+
       const images = [];
       for (const file of selectedImageFiles) {
         const contentBase64 = await readFileAsBase64(file);
@@ -1473,7 +1536,8 @@
       if (!response.ok || !data.ok) {
         throw new Error(data.error || "Image upload failed.");
       }
-      return String(data.imageRoot || "").trim();
+      uploadedImageRootCache = String(data.imageRoot || "").trim();
+      return uploadedImageRootCache;
     }
 
     function getSelectedCsvFile() {
@@ -2464,6 +2528,7 @@
       setSelectedImageFiles(files, "drop zone");
       if (selectedImageFiles.length) {
         quickStatus.textContent = "Images loaded. Generate draft to upload and use them automatically.";
+        scheduleAutoTemplateGeneration("images-drop");
       } else {
         quickStatus.textContent = "No valid image files found in drop selection.";
       }
@@ -2492,7 +2557,12 @@
       setSelectedImageFiles(quickImageInput.files ? Array.from(quickImageInput.files) : [], "image picker");
       if (selectedImageFiles.length) {
         quickStatus.textContent = "Images selected. Generate draft to upload and use them automatically.";
+        scheduleAutoTemplateGeneration("images-picker");
       }
+    });
+
+    quickDescriptionInput.addEventListener("input", () => {
+      scheduleAutoTemplateGeneration("description-edit");
     });
 
     quickProductTypeInput.addEventListener("input", () => {

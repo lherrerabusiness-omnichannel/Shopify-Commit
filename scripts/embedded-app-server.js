@@ -820,6 +820,37 @@ function readTemplateDefaults(shortDescription, imageNames) {
   }
 }
 
+function generateShortDescriptionFromContext(options = {}) {
+  const imageNames = Array.isArray(options.imageNames)
+    ? options.imageNames.map((x) => String(x || "").trim()).filter(Boolean)
+    : [];
+  const suggestedProductType = String(options.suggestedProductType || "").trim();
+  const brandProfile = options.brandProfile || createEmptyBrandProfile();
+
+  const keywordSet = new Set();
+  for (const name of imageNames) {
+    const base = String(name || "")
+      .toLowerCase()
+      .replace(/\.[a-z0-9]+$/i, "")
+      .replace(/[_-]+/g, " ")
+      .replace(/[^a-z0-9\s]/g, " ")
+      .split(/\s+/)
+      .map((x) => x.trim())
+      .filter((x) => x.length >= 3 && !["img", "image", "photo", "front", "back", "side"].includes(x));
+    for (const token of base) {
+      keywordSet.add(token);
+      if (keywordSet.size >= 6) break;
+    }
+    if (keywordSet.size >= 6) break;
+  }
+
+  const keywords = Array.from(keywordSet);
+  const lead = suggestedProductType || "product listing";
+  const detail = keywords.length ? `with focus on ${keywords.join(", ")}` : "with clear specs and practical use guidance";
+  const brandText = brandProfile.brandName ? `for ${brandProfile.brandName}` : "";
+  return `${lead} ${brandText} ${detail}`.replace(/\s+/g, " ").trim();
+}
+
 function firstNonEmpty(values) {
   for (const value of values) {
     const v = String(value || "").trim();
@@ -2902,6 +2933,47 @@ function createServer() {
             metafieldSeed: buildMetafieldSeed(8),
             brandProfile,
           },
+        });
+      } catch (error) {
+        return sendJson(res, 400, { ok: false, error: String(error.message || error) });
+      }
+    }
+
+    if (req.method === "POST" && requestUrl.pathname === "/api/workflow/description/from-images") {
+      try {
+        const body = await readBody(req);
+        const shopContext = getContext(body);
+        const shortDescription = String(body.shortDescription || "").trim();
+        if (shortDescription) {
+          return sendJson(res, 200, {
+            ok: true,
+            shortDescription,
+            generated: false,
+          });
+        }
+
+        const imageNames = Array.isArray(body.imageNames)
+          ? body.imageNames.map((x) => String(x || "").trim()).filter(Boolean)
+          : [];
+        const suggestion = suggestProductType(shopContext, "", imageNames);
+        const profile = readBrandProfile(shopContext.paths.brandProfilePath);
+        const fallbackProfile = readDefaultBrandProfileFromCsv();
+        const brandProfile = {
+          ...fallbackProfile,
+          ...profile,
+          brandName: firstNonEmpty([profile.brandName, fallbackProfile.brandName]),
+        };
+        const generatedText = generateShortDescriptionFromContext({
+          imageNames,
+          suggestedProductType: suggestion.productType,
+          brandProfile,
+        });
+
+        return sendJson(res, 200, {
+          ok: true,
+          shortDescription: generatedText,
+          generated: true,
+          source: suggestion.source,
         });
       } catch (error) {
         return sendJson(res, 400, { ok: false, error: String(error.message || error) });
