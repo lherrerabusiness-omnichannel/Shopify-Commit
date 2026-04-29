@@ -477,9 +477,83 @@
       .row { grid-template-columns: 1fr; }
       .quick-grid { grid-template-columns: 1fr; }
     }
+    /* SKU conflict modal */
+    .modal-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(17, 18, 19, 0.55);
+      z-index: 9999;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-backdrop.open { display: flex; }
+    .modal-box {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      box-shadow: 0 24px 48px rgba(17,18,19,0.18);
+      padding: 24px 22px 20px;
+      max-width: 500px;
+      width: 94%;
+    }
+    .modal-box h3 {
+      margin: 0 0 8px;
+      font-size: 1rem;
+      color: var(--accent);
+    }
+    .modal-box p {
+      margin: 0 0 12px;
+      font-size: 0.86rem;
+      line-height: 1.45;
+      color: var(--ink);
+    }
+    .modal-box .modal-detail {
+      background: #fff9ef;
+      border: 1px solid #e4d3a8;
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 0.8rem;
+      font-family: "JetBrains Mono", monospace;
+      margin-bottom: 14px;
+      white-space: pre-wrap;
+    }
+    .modal-box .modal-btns {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    /* AI status badge */
+    .ai-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      border-radius: 999px;
+      padding: 3px 9px;
+      border: 1px solid transparent;
+    }
+    .ai-badge.idle { background: #f0f4f7; border-color: #c8d2db; color: #4f5e69; }
+    .ai-badge.running { background: #eef8f4; border-color: #8ecfbb; color: #0a6a55; animation: ai-pulse 1.3s ease-in-out infinite; }
+    .ai-badge.ok { background: #e5f5ed; border-color: #7abf9e; color: #0a5c42; }
+    .ai-badge.warn { background: #fff6e5; border-color: #e8c96a; color: #7a5b00; }
+    @keyframes ai-pulse { 0%,100%{opacity:1} 50%{opacity:0.6} }
   </style>
 </head>
 <body>
+  <!-- SKU conflict modal (shared) -->
+  <div class="modal-backdrop" id="skuConflictModal" role="dialog" aria-modal="true" aria-labelledby="skuModalTitle">
+    <div class="modal-box">
+      <h3 id="skuModalTitle">SKU Already Exists in Catalog</h3>
+      <p id="skuModalBody">A product with this SKU already exists in your Shopify catalog. How would you like to proceed?</p>
+      <div class="modal-detail" id="skuModalDetail"></div>
+      <div class="modal-btns">
+        <button class="btn primary" id="skuModalCreateNew" type="button">Create New Listing Anyway</button>
+        <button class="btn" id="skuModalCancel" type="button">Cancel &amp; Go Back</button>
+      </div>
+    </div>
+  </div>
   <div class="topbar">
     <div>
       Shopify Commit Embedded App
@@ -621,6 +695,10 @@
                 <button class="btn" id="quickConnectionBtn" type="button">Check Connection</button>
                 <button class="btn" id="quickDiagnosticsBtn" type="button">Export Support Bundle</button>
               </div>
+              <div style="margin-top:8px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                <span class="ai-badge idle" id="aiStatusBadge">&#x2B58; AI: idle</span>
+                <span style="font-size:0.75rem; color:var(--sub);" id="aiStatusHint">Inputs used: add images + goal, then generate.</span>
+              </div>
               <div class="status-list" id="quickStatus">Quick path ready. Connect store, add CSV, then Generate Listing Draft.</div>
               <div class="status-list" id="pilotAuditStatus">Pilot audit idle. Import a draft to view confidence and taxonomy cues.</div>
               <div class="status-list" id="quickCsvBuilderStatus">No custom CSV generated yet.</div>
@@ -663,7 +741,7 @@
             </div>
           </details>
           <div class="quick-guide">
-            <strong>Quick Guide:</strong> 1) Drop images + add goal, 2) Generate CSV From Images + Goal, 3) review/edit fields, 4) choose product type (existing or new), 5) Generate Listing From Reviewed Fields.
+            <strong>Quick Guide:</strong> 1) Drop product images + type your listing goal below, 2) Click <code>Generate CSV From Images + Goal</code> — Gemini AI analyzes your inputs and pre-fills all listing fields, 3) Review/edit any fields in the table, 4) Choose a product type, 5) Click <code>Generate Listing From Reviewed Fields</code> to finalize. The <span style="color:var(--primary);font-weight:600;">AI badge</span> above shows whether AI successfully enriched the listing. If a SKU conflict is detected you'll be prompted before anything is created.
           </div>
         </div>
 
@@ -1026,6 +1104,68 @@
       description: "",
       imageSignature: "",
     };
+
+    // SKU conflict modal state
+    const skuConflictModal = document.getElementById("skuConflictModal");
+    const skuModalBody = document.getElementById("skuModalBody");
+    const skuModalDetail = document.getElementById("skuModalDetail");
+    const skuModalCreateNew = document.getElementById("skuModalCreateNew");
+    const skuModalCancel = document.getElementById("skuModalCancel");
+
+    // AI status badge
+    const aiStatusBadge = document.getElementById("aiStatusBadge");
+    const aiStatusHint = document.getElementById("aiStatusHint");
+
+    function setAiBadge(state, hint) {
+      aiStatusBadge.className = `ai-badge ${state}`;
+      if (state === "idle") aiStatusBadge.textContent = "\u2B58 AI: idle";
+      else if (state === "running") aiStatusBadge.textContent = "\u25B6 AI: generating\u2026";
+      else if (state === "ok") aiStatusBadge.textContent = "\u2713 AI: enriched";
+      else if (state === "warn") aiStatusBadge.textContent = "\u26A0 AI: fallback";
+      if (hint) aiStatusHint.textContent = hint;
+    }
+
+    // Returns a Promise that resolves true (proceed) or false (cancel).
+    // Checks the SKU field in customCsvRow. If no SKU or no conflict, resolves true immediately.
+    function checkSkuConflictBeforeProceed() {
+      const sku = String(customCsvRow && (customCsvRow.sku || customCsvRow.variant_sku) || "").trim();
+      if (!sku) return Promise.resolve(true);
+
+      return apiGet(`/api/store/sku-check?sku=${encodeURIComponent(sku)}`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (!data.ok || !data.exists) return true; // no conflict, proceed
+
+          const conflicts = Array.isArray(data.conflicts) ? data.conflicts : [];
+          const detailLines = conflicts.map((c) =>
+            `SKU: ${c.sku}\nProduct: ${c.productTitle} (${c.productStatus})\nHandle: ${c.productHandle}`
+          ).join("\n\n");
+          skuModalBody.textContent = `A product with SKU "${sku}" already exists in your Shopify catalog. How would you like to proceed?`;
+          skuModalDetail.textContent = detailLines || `SKU: ${sku}`;
+
+          return new Promise((resolve) => {
+            skuConflictModal.classList.add("open");
+
+            function onCreateNew() {
+              cleanup();
+              resolve(true); // create new anyway
+            }
+            function onCancel() {
+              cleanup();
+              resolve(false); // abort
+            }
+            function cleanup() {
+              skuConflictModal.classList.remove("open");
+              skuModalCreateNew.removeEventListener("click", onCreateNew);
+              skuModalCancel.removeEventListener("click", onCancel);
+            }
+
+            skuModalCreateNew.addEventListener("click", onCreateNew);
+            skuModalCancel.addEventListener("click", onCancel);
+          });
+        })
+        .catch(() => true); // network error: proceed rather than block
+    }
     const classificationNoticeText = "Final classification stays under your control before publishing.";
     const autoRefreshFieldKeys = [
       "short_description",
@@ -1538,10 +1678,12 @@
 
     async function generateCustomCsvFromImagesAndGoal() {
       quickAutoCsvBtn.disabled = true;
+      setAiBadge("running", "Sending inputs to Gemini AI…");
       try {
         const shortDescription = String(quickDescriptionInput.value || "").trim();
         if (!shortDescription && !selectedImageFiles.length) {
           quickCsvBuilderStatus.textContent = "Add a short description or images first.";
+          setAiBadge("idle", "Add images + goal to enable AI enrichment.");
           return;
         }
 
@@ -1578,9 +1720,19 @@
         }
         renderCustomCsvFields();
         rememberAutoRefreshContext();
-        quickCsvBuilderStatus.textContent = `Custom CSV generated. Suggested product type: ${data.template.suggestedProductType || "n/a"}.`;
+        const aiGenerated = Boolean(data.template.aiGenerated);
+        if (aiGenerated) {
+          const usedInputs = [];
+          if (shortDescription) usedInputs.push("goal");
+          if (imageNames.length) usedInputs.push(`${imageNames.length} image(s)`);
+          setAiBadge("ok", `Gemini used: ${usedInputs.join(", ") || "context"} → fields pre-populated.`);
+        } else {
+          setAiBadge("warn", "AI fallback: fields filled from templates. Try adding more detail.");
+        }
+        quickCsvBuilderStatus.textContent = `Custom CSV generated${aiGenerated ? " (AI-enriched)" : " (template fallback)"}. Suggested product type: ${data.template.suggestedProductType || "n/a"}.`;
         setCategoryCheckStatus(quickProductTypeInput.value || customCsvRow.product_type || "");
       } catch (error) {
+        setAiBadge("warn", "AI generation failed — check server logs.");
         quickCsvBuilderStatus.textContent = `Custom CSV generation failed: ${String(error && error.message ? error.message : error)}`;
       } finally {
         quickAutoCsvBtn.disabled = false;
@@ -1681,6 +1833,14 @@
         }
 
         await autofillMissingReviewedFields();
+
+        // SKU conflict check before creating the listing
+        const proceed = await checkSkuConflictBeforeProceed();
+        if (!proceed) {
+          quickStatus.textContent = "Cancelled. Your reviewed fields are still here — edit any field and try again.";
+          return;
+        }
+
         useCustomCsvForImport();
         if (!getSelectedCsvFile()) {
           quickStatus.textContent = "No reviewed CSV available to generate from.";
@@ -2840,7 +3000,14 @@
     navRecoveryBtn.addEventListener("click", () => openSectionAndFocus(recoverySection, navRecoveryBtn));
     navSupportBtn.addEventListener("click", () => openSectionAndFocus(supportLogsSection, navSupportBtn));
 
-    quickGenerateBtn.addEventListener("click", () => runWorkflowImport("quick"));
+    quickGenerateBtn.addEventListener("click", async () => {
+      const proceed = await checkSkuConflictBeforeProceed();
+      if (!proceed) {
+        quickStatus.textContent = "Cancelled. Your reviewed fields are still here — edit any field and try again.";
+        return;
+      }
+      runWorkflowImport("quick");
+    });
     quickTemplateDownloadBtn.addEventListener("click", downloadBaseTemplateCsv);
     quickAutoCsvBtn.addEventListener("click", generateCustomCsvFromImagesAndGoal);
     quickCustomCsvDownloadBtn.addEventListener("click", downloadCustomCsv);

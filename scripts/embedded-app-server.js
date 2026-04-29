@@ -4058,6 +4058,74 @@ function createServer() {
       }
     }
 
+    if (req.method === "GET" && requestUrl.pathname === "/api/store/sku-check") {
+      try {
+        const sku = String(requestUrl.searchParams.get("sku") || "").trim();
+        if (!sku) {
+          return sendJson(res, 400, { ok: false, error: "sku query parameter is required." });
+        }
+        const shopContext = getContext();
+        const tokenEntry = getTokenByShop(shopContext.shop);
+        const accessToken = tokenEntry && tokenEntry.accessToken ? String(tokenEntry.accessToken) : "";
+        if (!accessToken) {
+          // No token yet — cannot check; report no conflict so flow is not blocked
+          return sendJson(res, 200, { ok: true, exists: false, sku, reason: "no-token" });
+        }
+        const gql = `
+          query SkuCheck($query: String!) {
+            productVariants(first: 5, query: $query) {
+              edges {
+                node {
+                  sku
+                  product {
+                    id
+                    title
+                    status
+                    handle
+                  }
+                }
+              }
+            }
+          }
+        `;
+        const escapedSku = sku.replace(/'/g, "\\'");
+        const response = await fetch(
+          `https://${normalizeShop(shopContext.shop)}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Shopify-Access-Token": String(accessToken),
+            },
+            body: JSON.stringify({
+              query: gql,
+              variables: { query: `sku:'${escapedSku}'` },
+            }),
+          }
+        );
+        if (!response.ok) {
+          return sendJson(res, 200, { ok: true, exists: false, sku, reason: "shopify-error" });
+        }
+        const payload = await response.json();
+        const edges = payload?.data?.productVariants?.edges || [];
+        // Exact-match filter (Shopify query is prefix-based)
+        const matches = edges
+          .map((e) => e?.node)
+          .filter((n) => n && String(n.sku || "").trim().toLowerCase() === sku.toLowerCase());
+        const exists = matches.length > 0;
+        const conflicts = matches.map((n) => ({
+          sku: String(n.sku || ""),
+          productId: String(n.product?.id || ""),
+          productTitle: String(n.product?.title || ""),
+          productStatus: String(n.product?.status || ""),
+          productHandle: String(n.product?.handle || ""),
+        }));
+        return sendJson(res, 200, { ok: true, exists, sku, conflicts });
+      } catch (error) {
+        return sendJson(res, 500, { ok: false, error: String(error.message || error) });
+      }
+    }
+
     if (req.method === "GET" && requestUrl.pathname === "/api/brand-profile/latest") {
       try {
         const shopContext = getContext();
