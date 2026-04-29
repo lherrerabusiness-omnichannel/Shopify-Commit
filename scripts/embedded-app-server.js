@@ -22,6 +22,12 @@ const REDIRECT_URI = String(process.env.EMBEDDED_SHOPIFY_REDIRECT_URI || `http:/
 const SHOPIFY_API_VERSION = String(process.env.SHOPIFY_API_VERSION || "2025-10").trim();
 const OPENAI_API_KEY = String(process.env.OPENAI_API_KEY || "").trim();
 const OPENAI_VISION_MODEL = String(process.env.OPENAI_VISION_MODEL || "gpt-4o-mini").trim();
+const OPENAI_COPY_MODEL = String(process.env.OPENAI_COPY_MODEL || "gpt-4o-mini").trim();
+// AI provider routing: "openai" (default) or "gemini"
+const AI_PROVIDER = String(process.env.AI_PROVIDER || "openai").trim().toLowerCase();
+const GEMINI_API_KEY = String(process.env.GEMINI_API_KEY || "").trim();
+const GEMINI_COPY_MODEL = String(process.env.GEMINI_COPY_MODEL || "gemini-2.0-flash").trim();
+const GEMINI_VISION_MODEL = String(process.env.GEMINI_VISION_MODEL || "gemini-2.0-flash").trim();
 const EMBEDDED_ALLOW_LIVE_PUSH = String(process.env.EMBEDDED_ALLOW_LIVE_PUSH || "false").toLowerCase() === "true";
 const PILOT_ROLLOUT_ENFORCE = String(process.env.PILOT_ROLLOUT_ENFORCE || "false").toLowerCase() === "true";
 const STORE_DB_PATH = path.resolve(process.cwd(), "data/shopify-store-db.json");
@@ -1393,7 +1399,11 @@ function resolveLocalUploadedImagePaths(imageRoot, imageNames, maxImages = 3) {
 }
 
 async function describeProductFromImagesWithVision(options = {}) {
-  if (!OPENAI_API_KEY) {
+  // Vision requires a supported key — Gemini vision uses a different request
+  // format handled below; OpenAI vision uses the Responses API.
+  const hasOpenAi = Boolean(OPENAI_API_KEY);
+  const hasGemini = Boolean(GEMINI_API_KEY);
+  if (!hasOpenAi && !hasGemini) {
     return "";
   }
 
@@ -1437,6 +1447,42 @@ async function describeProductFromImagesWithVision(options = {}) {
     return "";
   }
 
+  // Build image parts for whichever provider is active
+  const imageBuffers = userParts.slice(1); // everything after the text prompt
+
+  // --- Gemini vision path ---
+  if ((AI_PROVIDER === "gemini" || !OPENAI_API_KEY) && GEMINI_API_KEY) {
+    try {
+      const textPrompt = userParts[0].text;
+      const geminiParts = [{ text: textPrompt }];
+      for (const part of imageBuffers) {
+        // part.image_url is "data:mime;base64,..."
+        const match = String(part.image_url || "").match(/^data:([^;]+);base64,(.+)$/);
+        if (match) {
+          geminiParts.push({ inline_data: { mime_type: match[1], data: match[2] } });
+        }
+      }
+      const geminiBody = {
+        contents: [{ role: "user", parts: geminiParts }],
+        systemInstruction: { parts: [{ text: "You are a product catalog assistant that writes short factual product descriptions from images." }] },
+        generationConfig: { maxOutputTokens: 80 },
+      };
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_VISION_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(geminiBody),
+      });
+      if (!response.ok) return "";
+      const payload = await response.json();
+      const text = String(payload?.candidates?.[0]?.content?.parts?.[0]?.text || "").trim();
+      return text.replace(/\s+/g, " ").slice(0, 220);
+    } catch {
+      return "";
+    }
+  }
+
+  // --- OpenAI Responses API path ---
   try {
     const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
@@ -1492,6 +1538,132 @@ async function getVisionContextHint(options = {}) {
   });
   visionContextCache.set(cacheKey, hint || "");
   return hint || "";
+}
+
+// ---------------------------------------------------------------------------
+// AI provider routing helper — resolves base URL, API key, and model name
+// from AI_PROVIDER env setting. Supports "openai" and "gemini".
+// Gemini exposes an OpenAI-compatible /v1/chat/completions endpoint so the
+// same request body works for both; only the base URL and key differ.
+// ---------------------------------------------------------------------------
+function resolveAiCopyProvider() {
+  if (AI_PROVIDER === "gemini" && GEMINI_API_KEY) {
+    return {
+      baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+      apiKey: GEMINI_API_KEY,
+      model: GEMINI_COPY_MODEL,
+      provider: "gemini",
+    };
+  }
+  // Fall back to OpenAI if key is present, otherwise null (no AI)
+  if (OPENAI_API_KEY) {
+    return {
+      baseUrl: "https://api.openai.com/v1",
+      apiKey: OPENAI_API_KEY,
+      model: OPENAI_COPY_MODEL,
+      provider: "openai",
+    };
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// AI copy generation - calls the configured provider (Gemini or OpenAI) with
+// the full product context prompt and returns structured JSON fields to merge.
+// ---------------------------------------------------------------------------
+async function aiGenerateProductCopy(options = {}) {
+  const provider = resolveAiCopyProvider();
+  if (!provider) return null;
+
+  const systemPrompt = String(options.systemPrompt || "").trim();
+  const shortDescription = String(options.shortDescription || "").trim();
+  const row = options.row && typeof options.row === "object" ? options.row : {};
+  const overwriteFields = options.overwriteFields instanceof Set ? options.overwriteFields : new Set(Array.isArray(options.overwriteFields) ? options.overwriteFields : []);
+  const lockedFields = options.lockedFields instanceof Set ? options.lockedFields : new Set(Array.isArray(options.lockedFields) ? options.lockedFields : []);
+
+  if (!systemPrompt) return null;
+
+  const userMessage = [
+    "Generate the following product listing fields as a JSON object.",
+    "Return ONLY valid JSON - no markdown, no explanation, no code fences.",
+    "",
+    shortDescription ? `User goal: "${shortDescription}"` : "",
+    "",
+    "Return JSON with exactly these keys:",
+    '  "title": concise keyword-rich product title (max 80 chars, title case, preserve product codes like MR16/GU10/E26/LED in ALL CAPS)',
+    '  "description_html": SEO-optimized HTML product description. Lead with the strongest benefit sentence from the user goal. Include a <ul> of key specs. 120-280 words.',
+    '  "seo_title": search-optimized page title with primary keywords (max 70 chars)',
+    '  "seo_description": meta description that drives clicks, keyword-rich, ends with a call to action (max 155 chars)',
+    '  "tags": array of 8-15 lowercase hyphenated Shopify tags for discoverability and collection routing',
+    '  "vendor": brand/manufacturer name',
+    '  "product_type": Shopify product type string matching store taxonomy',
+  ].filter(Boolean).join("\n");
+
+  try {
+    const response = await fetch(`${provider.baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${provider.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: provider.model,
+        response_format: { type: "json_object" },
+        temperature: 0.3,
+        max_tokens: 900,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userMessage },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      const errText = await response.text().catch(() => "");
+      console.warn(`[ai-copy] ${provider.provider} error ${response.status}: ${errText.slice(0, 200)}`);
+      return null;
+    }
+
+    const payload = await response.json();
+    const raw = String(payload?.choices?.[0]?.message?.content || "").trim();
+    if (!raw) return null;
+
+    const aiFields = JSON.parse(raw);
+
+    // Merge AI fields into the row, respecting locked fields and only
+    // overwriting empty or explicitly-overwrite-requested fields.
+    const merged = { ...row };
+
+    function applyAiField(rowKey, aiValue) {
+      if (!aiValue) return;
+      if (lockedFields.has(rowKey)) return;
+      const current = String(merged[rowKey] || "").trim();
+      if (!current || overwriteFields.has(rowKey)) {
+        merged[rowKey] = aiValue;
+      }
+    }
+
+    if (aiFields.title) applyAiField("title", normalizeTitleCase(String(aiFields.title)));
+    if (aiFields.description_html) applyAiField("description", aiFields.description_html);
+    if (aiFields.description_html) applyAiField("body_html", aiFields.description_html);
+    if (aiFields.seo_title) applyAiField("seo_title", String(aiFields.seo_title).slice(0, 70));
+    if (aiFields.seo_description) applyAiField("seo_description", String(aiFields.seo_description).slice(0, 155));
+    if (aiFields.vendor) applyAiField("vendor", String(aiFields.vendor));
+    if (aiFields.product_type) applyAiField("product_type", String(aiFields.product_type));
+
+    // Merge AI tags with existing tags (deduplicated)
+    if (Array.isArray(aiFields.tags) && aiFields.tags.length && !lockedFields.has("tags")) {
+      const existingTags = String(merged.tags || "").split("|").map((t) => t.trim().toLowerCase()).filter(Boolean);
+      const aiTags = aiFields.tags.map((t) => String(t || "").trim().toLowerCase().replace(/\s+/g, "-")).filter(Boolean);
+      const combined = [...new Set([...existingTags, ...aiTags])];
+      merged.tags = combined.join("|");
+    }
+
+    return merged;
+  } catch (err) {
+    console.warn(`[ai-copy] Generation failed: ${err.message}`);
+    return null;
+  }
 }
 
 function generateShortDescriptionFromContext(options = {}) {
@@ -2429,6 +2601,10 @@ async function performWorkflowImport(shopContext, payload) {
   const result = await runImportWithInput(shopContext, inputPath, imageRoot, {
     autoApplyTaxonomyFromSimilar,
   });
+  const aiImportEnrichment = await enrichImportedOutputWithAi(shopContext, {
+    outputPath: result.outputPath,
+    shortDescription,
+  });
   const pilotAudit = buildPilotAudit(result.rows);
 
   shopContext.workflowState.lastImport = {
@@ -2438,6 +2614,7 @@ async function performWorkflowImport(shopContext, payload) {
     stderr: result.stderr,
     shortDescription,
     autoApplyTaxonomyFromSimilar,
+    aiImportEnrichment,
     pilotAudit,
     inputPath: toPosixPath(inputPath),
     outputPath: toPosixPath(result.outputPath),
@@ -2463,6 +2640,7 @@ async function performWorkflowImport(shopContext, payload) {
     stderr: result.stderr,
     shortDescription,
     autoApplyTaxonomyFromSimilar,
+    aiImportEnrichment,
     pilotAudit,
     inputPath: toPosixPath(inputPath),
     outputPath: toPosixPath(result.outputPath),
@@ -2470,6 +2648,118 @@ async function performWorkflowImport(shopContext, payload) {
     rows: result.rows,
     rowCount: Array.isArray(result.rows) ? result.rows.length : 0,
   };
+}
+
+async function enrichImportedOutputWithAi(shopContext, options = {}) {
+  const outputPath = String(options.outputPath || "").trim();
+  const shortDescription = String(options.shortDescription || "").trim();
+
+  const summary = {
+    attempted: 0,
+    generated: 0,
+    skipped: 0,
+    errors: 0,
+  };
+
+  if (!OPENAI_API_KEY || !outputPath) {
+    return summary;
+  }
+
+  const absolute = path.resolve(process.cwd(), outputPath);
+  if (!fs.existsSync(absolute)) {
+    return summary;
+  }
+
+  try {
+    const raw = fs.readFileSync(absolute, "utf8");
+    const products = JSON.parse(raw);
+    if (!Array.isArray(products) || !products.length) {
+      return summary;
+    }
+
+    const storeDb = readStoreDb();
+    const profile = readBrandProfile(shopContext.paths.brandProfilePath);
+    const fallbackProfile = readDefaultBrandProfileFromCsv();
+    const brandProfile = {
+      ...fallbackProfile,
+      ...profile,
+      brandDisplayName: firstNonEmpty([profile.brandDisplayName, fallbackProfile.brandDisplayName, profile.brandName, fallbackProfile.brandName]),
+      brandName: firstNonEmpty([profile.brandName, fallbackProfile.brandName]),
+      brandVendor: firstNonEmpty([profile.brandVendor, fallbackProfile.brandVendor]),
+      websiteUrl: firstNonEmpty([profile.websiteUrl, fallbackProfile.websiteUrl]),
+      profileImageUrl: firstNonEmpty([profile.profileImageUrl, fallbackProfile.profileImageUrl]),
+      preset: firstNonEmpty([profile.preset, fallbackProfile.preset]),
+      notes: firstNonEmpty([profile.notes, fallbackProfile.notes]),
+    };
+
+    for (const product of products) {
+      summary.attempted += 1;
+
+      const row = {
+        title: String(product.title || "").trim(),
+        description: String(product.descriptionHtml || "").trim(),
+        vendor: String(product.vendor || "").trim(),
+        product_type: String(product.productType || "").trim(),
+        seo_title: String(product?.seo?.title || "").trim(),
+        seo_description: String(product?.seo?.description || "").trim(),
+        tags: Array.isArray(product.tags) ? product.tags.map((t) => String(t || "").trim()).filter(Boolean).join("|") : "",
+      };
+
+      const effectiveType = String(row.product_type || "").trim();
+      const typeHints = getStoreDbTypeHints(effectiveType, storeDb);
+      const categoryProfile = getCategoryProfileForType(effectiveType, storeDb);
+      const inferred = inferSignalsFromContext(shortDescription, [], effectiveType, "");
+      const generationPrompt = buildStrongProductPrompt({
+        shortDescription,
+        imageNames: [],
+        row,
+        suggestedProductType: effectiveType,
+        brandProfile,
+        templateDefaults: {},
+        typeHints,
+        categoryProfile,
+        consistencyReference: "",
+        inferred,
+        visionHint: "",
+      });
+
+      const aiCopy = await aiGenerateProductCopy({
+        systemPrompt: generationPrompt,
+        shortDescription,
+        row,
+        overwriteFields: ["title", "description", "seo_title", "seo_description", "tags", "vendor", "product_type"],
+      });
+
+      if (!aiCopy) {
+        summary.skipped += 1;
+        continue;
+      }
+
+      product.title = String(aiCopy.title || product.title || "").trim();
+      product.descriptionHtml = String(aiCopy.description || aiCopy.body_html || product.descriptionHtml || "").trim();
+      product.vendor = String(aiCopy.vendor || product.vendor || "").trim();
+      product.productType = String(aiCopy.product_type || product.productType || "").trim();
+      product.seo = {
+        ...(product.seo && typeof product.seo === "object" ? product.seo : {}),
+        title: String(aiCopy.seo_title || product?.seo?.title || "").trim(),
+        description: String(aiCopy.seo_description || product?.seo?.description || "").trim(),
+      };
+      if (String(aiCopy.tags || "").trim()) {
+        product.tags = String(aiCopy.tags)
+          .split("|")
+          .map((t) => String(t || "").trim())
+          .filter(Boolean);
+      }
+      summary.generated += 1;
+    }
+
+    fs.writeFileSync(absolute, `${JSON.stringify(products, null, 2)}\n`, "utf8");
+    return summary;
+  } catch (error) {
+    summary.errors += 1;
+    console.warn(`[ai-copy] Import enrichment failed: ${String(error.message || error)}`);
+    return summary;
+  }
 }
 
 async function performWorkflowPush(shopContext, payload) {
@@ -3787,9 +4077,17 @@ function createServer() {
           inferred,
           visionHint,
         });
+        // Run AI copy generation with the full context prompt
+        const aiCopy = await aiGenerateProductCopy({
+          systemPrompt: generationPrompt,
+          shortDescription,
+          row: autofilledRow,
+        });
+        const aiEnrichedRow = aiCopy || autofilledRow;
+        const aiGenerated = Boolean(aiCopy);
         const csvContent = [
           draft.headers.map((header) => csvEscape(header)).join(","),
-          draft.headers.map((header) => csvEscape(autofilledRow[header] || "")).join(","),
+          draft.headers.map((header) => csvEscape(aiEnrichedRow[header] || "")).join(","),
           "",
         ].join("\n");
         const productTypes = readStoreProductTypes();
@@ -3797,7 +4095,7 @@ function createServer() {
           ok: true,
           template: {
             headers: draft.headers,
-            row: autofilledRow,
+            row: aiEnrichedRow,
             csvContent,
             suggestedProductType: draft.suggestedProductType,
             suggestionSource: suggestion.source,
@@ -3805,6 +4103,7 @@ function createServer() {
             productTypes,
             metafieldSeed: buildMetafieldSeed(8),
             brandProfile,
+            aiGenerated,
             generationPrompt,
             contextSignals: {
               categoryProfile,
@@ -3958,19 +4257,29 @@ function createServer() {
           inferred,
           visionHint,
         });
+        const aiCopy = await aiGenerateProductCopy({
+          systemPrompt: generationPrompt,
+          shortDescription,
+          row: filled,
+          overwriteFields,
+          lockedFields,
+        });
+        const aiEnrichedRow = aiCopy || filled;
+        const aiGenerated = Boolean(aiCopy);
         const csvContent = [
           headers.map((header) => csvEscape(header)).join(","),
-          headers.map((header) => csvEscape(filled[header] || "")).join(","),
+          headers.map((header) => csvEscape(aiEnrichedRow[header] || "")).join(","),
           "",
         ].join("\n");
         return sendJson(res, 200, {
           ok: true,
           template: {
             headers,
-            row: filled,
+            row: aiEnrichedRow,
             csvContent,
             brandProfile,
             suggestedProductType,
+            aiGenerated,
             generationPrompt,
             contextSignals: {
               categoryProfile,
