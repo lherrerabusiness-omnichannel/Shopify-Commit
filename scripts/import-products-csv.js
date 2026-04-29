@@ -971,6 +971,108 @@ function buildDynamicMetafields(row, schema, reservedKeys) {
   return metafields;
 }
 
+function normalizeGeneratedMetafieldValue(value, definition) {
+  const typeName = getDefinitionType(definition);
+
+  if (Array.isArray(value)) {
+    const items = value.map((item) => normalizeText(item)).filter(Boolean);
+    if (!items.length) return "";
+    if (typeName.startsWith("list.")) {
+      return JSON.stringify(items);
+    }
+    return items.join(", ");
+  }
+
+  const text = normalizeText(value);
+  if (!text) return "";
+
+  if (typeName === "boolean") {
+    const lower = text.toLowerCase();
+    if (["yes", "true", "1", "on"].includes(lower)) return "true";
+    if (["no", "false", "0", "off"].includes(lower)) return "false";
+    return "";
+  }
+
+  if (typeName === "number_integer") {
+    const numeric = text.replace(/[^0-9-]/g, "");
+    return /^-?\d+$/.test(numeric) ? numeric : "";
+  }
+
+  if (typeName === "number_decimal") {
+    const numeric = text.replace(/[^0-9.-]/g, "");
+    return /^-?\d+(\.\d+)?$/.test(numeric) ? numeric : "";
+  }
+
+  if (typeName.startsWith("list.")) {
+    return JSON.stringify([text]);
+  }
+
+  return text;
+}
+
+function scoreDefinitionAgainstAliases(definition, aliases) {
+  const namespace = normalizeText(definition?.namespace);
+  const key = normalizeText(definition?.key);
+  const compound = `${namespace}.${key}`;
+  let best = 0;
+
+  for (const alias of aliases || []) {
+    const score = Math.max(
+      similarityScore(alias, key),
+      similarityScore(alias, compound),
+    );
+    if (score > best) best = score;
+  }
+
+  return best;
+}
+
+function autoMapGeneratedMetafields(schema, existingMetafields, generatedFields) {
+  const definitions = Array.isArray(schema?.productDefinitions) ? schema.productDefinitions : [];
+  if (!definitions.length) return [];
+
+  const existingIds = new Set((existingMetafields || []).map((item) => `${item.namespace}.${item.key}`.toLowerCase()));
+  const mapped = [];
+
+  for (const field of generatedFields || []) {
+    const aliases = Array.isArray(field.aliases) ? field.aliases.map((x) => normalizeText(x)).filter(Boolean) : [];
+    if (!aliases.length) continue;
+
+    const candidates = definitions
+      .map((definition) => ({
+        definition,
+        score: scoreDefinitionAgainstAliases(definition, aliases),
+      }))
+      .filter((item) => item.score >= 0.72)
+      .sort((a, b) => b.score - a.score);
+
+    const chosen = candidates.find((item) => {
+      const id = `${normalizeText(item.definition.namespace)}.${normalizeText(item.definition.key)}`.toLowerCase();
+      return !existingIds.has(id);
+    });
+
+    if (!chosen) continue;
+
+    const serialized = normalizeGeneratedMetafieldValue(field.value, chosen.definition);
+    if (!serialized) continue;
+
+    const validationError = validateMetafieldValue(chosen.definition, serialized);
+    if (validationError) continue;
+
+    const metafield = {
+      namespace: normalizeText(chosen.definition.namespace),
+      key: normalizeText(chosen.definition.key),
+      type: getDefinitionType(chosen.definition),
+      value: serialized,
+    };
+
+    mapped.push(metafield);
+    existingIds.add(`${metafield.namespace}.${metafield.key}`.toLowerCase());
+  }
+
+  return mapped;
+}
+
 function applyAlwaysUseDefaults(group, template, brandProfile, rules) {
   const applied = [];
   const brand = brandProfile?.profile;
@@ -2021,6 +2123,23 @@ function convertRows(rows, options) {
       finalStatus = "DRAFT";
     }
 
+    const generatedMetafields = autoMapGeneratedMetafields(
+      options.schema,
+      mergeMetafields(specsToMetafields(group.specs), group.dynamicMetafields),
+      [
+        { field: "voltage", value: group.specs.voltage, aliases: ["voltage", "input voltage", "operating voltage", "electrical voltage"] },
+        { field: "wattage", value: group.specs.wattage, aliases: ["wattage", "power", "power draw", "watts"] },
+        { field: "base_type", value: group.specs.base_type, aliases: ["base type", "socket type", "bulb base", "lamp base"] },
+        { field: "color_temp", value: group.specs.color_temp, aliases: ["color temperature", "kelvin", "cct", "color temp"] },
+        { field: "lumen_output", value: group.specs.lumen_output, aliases: ["lumen output", "lumens", "brightness"] },
+        { field: "dimmable", value: group.specs.dimmable, aliases: ["dimmable", "dimming"] },
+        { field: "key_features", value: group.keyFeatures, aliases: ["key features", "features", "highlights", "bullet points", "benefits"] },
+        { field: "short_description", value: group.shortDescription, aliases: ["short description", "summary", "excerpt"] },
+        { field: "seo_title", value: seo.title, aliases: ["seo title", "meta title", "page title", "search title"] },
+        { field: "seo_description", value: seo.description, aliases: ["seo description", "meta description", "search description"] },
+      ],
+    );
+
     const product = {
       title,
       handle: group.handle || slugify(title),
@@ -2032,7 +2151,10 @@ function convertRows(rows, options) {
       seo,
       options: group.optionNames,
       variants: group.variants,
-      metafields: mergeMetafields(specsToMetafields(group.specs), group.dynamicMetafields),
+      metafields: mergeMetafields(
+        mergeMetafields(specsToMetafields(group.specs), group.dynamicMetafields),
+        generatedMetafields,
+      ),
       source: {
         groupId: group.groupId,
         imageFolder: group.imageFolder || "",
@@ -2047,6 +2169,7 @@ function convertRows(rows, options) {
         metafieldValidationIssues: Array.from(new Set(group.metafieldValidationIssues)),
         requiredFixes: fixPrompts,
         mappedDynamicMetafields: group.dynamicMetafields.map((m) => `${m.namespace}.${m.key}`),
+        autoMappedGeneratedMetafields: generatedMetafields.map((m) => `${m.namespace}.${m.key}`),
         inferredFields: group.inferredFields,
         keyFeatures: group.keyFeatures,
         mappedProductType,
@@ -2095,7 +2218,7 @@ function convertRows(rows, options) {
       matched_collections: combinedMatchedCollections.join("|"),
       auto_applied_tags: combinedAutoTags.join("|"),
       publish_blockers: publishBlockers.join("|"),
-      mapped_metafields: group.dynamicMetafields.map((m) => `${m.namespace}.${m.key}`).join("|"),
+      mapped_metafields: mergeMetafields(group.dynamicMetafields, generatedMetafields).map((m) => `${m.namespace}.${m.key}`).join("|"),
       tags: Array.from(group.tags).join("|"),
       ready_to_publish:
         publishBlockers.length === 0
