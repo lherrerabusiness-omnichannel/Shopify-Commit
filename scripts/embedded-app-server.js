@@ -1198,9 +1198,67 @@ function mergeTagList(...groups) {
   return out;
 }
 
+function normalizeSearchToken(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+}
+
+function buildSearchOptimizationFields(options = {}) {
+  const title = String(options.title || "").trim();
+  const shortDescription = String(options.shortDescription || "").trim();
+  const effectiveProductType = String(options.effectiveProductType || "").trim();
+  const brandIdentity = String(options.brandIdentity || "").trim();
+  const inferred = options.inferred || {};
+  const existingTags = Array.isArray(options.existingTags) ? options.existingTags : [];
+
+  const primaryKeywords = [
+    effectiveProductType,
+    inferred.modelCode,
+    inferred.installType,
+    inferred.voltage,
+    inferred.wattage,
+    inferred.colorTemp,
+    inferred.material,
+    inferred.finish,
+    inferred.baseType,
+  ].filter(Boolean).map((x) => String(x).trim());
+
+  const seoTitle = firstNonEmpty([
+    [brandIdentity, ...primaryKeywords.slice(0, 3)].filter(Boolean).join(" ").trim(),
+    title,
+  ]).slice(0, 70);
+
+  const seoDescription = firstNonEmpty([
+    `${title || effectiveProductType || "Product"} ${primaryKeywords.slice(0, 4).join(" ")}. ${shortDescription}`.trim(),
+    shortDescription,
+    title,
+  ]).slice(0, 155);
+
+  const generatedSearchTags = [
+    ...existingTags,
+    ...primaryKeywords,
+    brandIdentity,
+    shortDescription.split(/\s+/).slice(0, 6).join(" "),
+  ]
+    .map(normalizeSearchToken)
+    .filter(Boolean);
+
+  const dedupedTags = [...new Set(generatedSearchTags)].slice(0, 18);
+  const keywordBlob = dedupedTags.slice(0, 10).join(", ");
+
+  return {
+    seoTitle,
+    seoDescription,
+    tags: dedupedTags,
+    keywordBlob,
+  };
+}
+
 function extractPriceFromUserInput(shortDescription = "") {
   const raw = String(shortDescription || "");
-  const upper = raw.toUpperCase();
   
   // Try to extract price from patterns like: $99, $99.99, 99 dollars, price: $99, etc.
   const match = raw.match(/[^\d]?\$(\d+(?:\.\d{2})?)\b|\b(\d+(?:\.\d{2})?)\s*(?:dollars?|usd|USD)/i);
@@ -1327,7 +1385,7 @@ function buildStrongProductPrompt(options = {}) {
     "- Price: Must include if provided by user. This is critical for sales.",
     "- Tags: Use brand, specs (voltage/wattage), material, finish, and category tags for discoverability.",
     "- Product type: Align with store taxonomy hints but use user goal as tie-breaker.",
-    "- Respect brand tone and website context in all copy.
+    "- Respect brand tone and website context in all copy.",
     `- Return best values for: ${requestedFields}.`,
   ].join("\n");
 }
@@ -1863,6 +1921,7 @@ async function aiGenerateProductCopy(options = {}) {
     '  "description_html": SEO-optimized HTML product description. Lead with the strongest benefit sentence from the user goal. Include a <ul> of key specs. 120-280 words.',
     '  "seo_title": search-optimized page title with primary keywords (max 70 chars)',
     '  "seo_description": meta description that drives clicks, keyword-rich, ends with a call to action (max 155 chars)',
+    '  "meta_keywords": comma-separated keyword list for search indexing (max 10 terms)',
     '  "tags": array of 8-15 lowercase hyphenated Shopify tags for discoverability and collection routing',
     '  "vendor": brand/manufacturer name',
     '  "product_type": Shopify product type string matching store taxonomy',
@@ -1912,6 +1971,22 @@ async function aiGenerateProductCopy(options = {}) {
     if (aiFields.description_html) applyAiField("body_html", aiFields.description_html);
     if (aiFields.seo_title) applyAiField("seo_title", String(aiFields.seo_title).slice(0, 70));
     if (aiFields.seo_description) applyAiField("seo_description", String(aiFields.seo_description).slice(0, 155));
+    if (aiFields.meta_keywords) {
+      const keywordBlob = String(aiFields.meta_keywords || "").trim();
+      ["meta_keywords", "search_keywords", "keywords"].forEach((field) => {
+        applyAiField(field, keywordBlob);
+      });
+    }
+    if (aiFields.seo_title) {
+      ["meta_title", "page_title", "search_title"].forEach((field) => {
+        applyAiField(field, String(aiFields.seo_title).slice(0, 70));
+      });
+    }
+    if (aiFields.seo_description) {
+      ["meta_description", "page_description", "search_description"].forEach((field) => {
+        applyAiField(field, String(aiFields.seo_description).slice(0, 155));
+      });
+    }
     if (aiFields.vendor) applyAiField("vendor", String(aiFields.vendor));
     if (aiFields.product_type) applyAiField("product_type", String(aiFields.product_type));
 
@@ -2160,6 +2235,14 @@ function applyAutofillToRow(row, options = {}) {
     shortDescription,
     brandProfile.notes,
   ]);
+  const optimization = buildSearchOptimizationFields({
+    title: seoTitle,
+    shortDescription: description,
+    effectiveProductType,
+    brandIdentity,
+    inferred,
+    existingTags: mergedTags,
+  });
 
   if (shouldPopulateField(next, "short_description", overwriteFields, lockedFields)) {
     next.short_description = firstNonEmpty([shortDescription, visionHint, seoTitle]);
@@ -2198,7 +2281,50 @@ function applyAutofillToRow(row, options = {}) {
     ]);
   }
   if (shouldPopulateField(next, "tags", overwriteFields, lockedFields)) {
-    next.tags = mergedTags.join("|");
+    next.tags = optimization.tags.join("|");
+  }
+  if (shouldPopulateField(next, "seo_title", overwriteFields, lockedFields)) {
+    next.seo_title = optimization.seoTitle;
+  }
+  if (shouldPopulateField(next, "seo_description", overwriteFields, lockedFields)) {
+    next.seo_description = optimization.seoDescription;
+  }
+  ["meta_title", "page_title", "search_title"].forEach((field) => {
+    if (shouldPopulateField(next, field, overwriteFields, lockedFields)) {
+      next[field] = optimization.seoTitle;
+    }
+  });
+  ["meta_description", "page_description", "search_description"].forEach((field) => {
+    if (shouldPopulateField(next, field, overwriteFields, lockedFields)) {
+      next[field] = optimization.seoDescription;
+    }
+  });
+  ["search_keywords", "meta_keywords", "keywords"].forEach((field) => {
+    if (shouldPopulateField(next, field, overwriteFields, lockedFields)) {
+      next[field] = optimization.keywordBlob;
+    }
+  });
+  ["tag_list", "search_tags"].forEach((field) => {
+    if (shouldPopulateField(next, field, overwriteFields, lockedFields)) {
+      next[field] = optimization.tags.join("|");
+    }
+  });
+  if (shouldPopulateField(next, "metafields_json", overwriteFields, lockedFields)) {
+    let currentMeta = {};
+    try {
+      currentMeta = String(next.metafields_json || "").trim() ? JSON.parse(String(next.metafields_json || "{}")) : {};
+    } catch {
+      currentMeta = {};
+    }
+    const mergedMeta = {
+      ...buildMetafieldSeed(8),
+      ...(currentMeta && typeof currentMeta === "object" ? currentMeta : {}),
+    };
+    if (!mergedMeta.seo) mergedMeta.seo = {};
+    if (!mergedMeta.seo.meta_title) mergedMeta.seo.meta_title = optimization.seoTitle;
+    if (!mergedMeta.seo.meta_description) mergedMeta.seo.meta_description = optimization.seoDescription;
+    if (!mergedMeta.seo.search_keywords) mergedMeta.seo.search_keywords = optimization.keywordBlob;
+    next.metafields_json = JSON.stringify(mergedMeta);
   }
   if (shouldPopulateField(next, "status", overwriteFields, lockedFields)) {
     next.status = "DRAFT";
@@ -2270,6 +2396,9 @@ function applyAutofillToRow(row, options = {}) {
     if (consistencyReference.source) {
       notes.push(`consistency=${consistencyReference.source}`);
     }
+    if (optimization.keywordBlob) {
+      notes.push(`search_keywords=${optimization.keywordBlob.slice(0, 100)}`);
+    }
     next.source_notes = notes.join("; ");
   }
   ["website", "brand_website", "website_url", "brand_url", "reference_url", "reference_link", "source_url"]
@@ -2278,10 +2407,6 @@ function applyAutofillToRow(row, options = {}) {
         next[field] = websiteUrl;
       }
     });
-  if (shouldPopulateField(next, "metafields_json", overwriteFields, lockedFields)) {
-    next.metafields_json = JSON.stringify(buildMetafieldSeed(8));
-  }
-
   const imageHeaders = Object.keys(next).filter((header) => /^image(_\d+)?$/i.test(header));
   imageHeaders.forEach((header, idx) => {
     if (!String(next[header] || "").trim() && imageNames[idx]) {
