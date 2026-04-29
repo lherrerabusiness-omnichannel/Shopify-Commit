@@ -2798,6 +2798,7 @@
           const pushPayload = {
             mode: "live",
             outputPath: String(importResult.outputPath || "").trim(),
+            liveConfirm: "LIVE",
           };
           const pushRes = await apiPost("/api/workflow/push", pushPayload);
           const pushData = await pushRes.json();
