@@ -1848,7 +1848,12 @@
         }
 
         await sendProductTypeFeedback(String(customCsvRow.product_type || quickProductTypeInput.value || ""));
-        await runWorkflowImport("quick-reviewed");
+        const shouldPushLive = window.confirm("Generate from reviewed fields and push live Shopify draft(s) now? Click Cancel to keep your work and stop before live push.");
+        if (!shouldPushLive) {
+          quickStatus.textContent = "Cancelled before live push. Your reviewed fields are preserved.";
+          return;
+        }
+        await runWorkflowImport("quick-reviewed-live");
       } finally {
         quickGenerateFromReviewedBtn.disabled = false;
       }
@@ -2751,6 +2756,21 @@
             importResult,
           );
           quickStatus.textContent = "Dry-run push completed. No Shopify draft is created in dry mode; use Push Live to create drafts.";
+        } else if (origin === "quick-reviewed-live" && importResult && importResult.ok) {
+          const pushPayload = {
+            mode: "live",
+            outputPath: String(importResult.outputPath || "").trim(),
+          };
+          const pushRes = await apiPost("/api/workflow/push", pushPayload);
+          const pushData = await pushRes.json();
+          if (!pushRes.ok || !pushData.ok) {
+            throw new Error(pushData.error || "Live push failed after reviewed import.");
+          }
+          workflowStatus.textContent = summarizeWorkflowOutput(
+            "Generate/import completed and live push created Shopify draft(s).",
+            pushData,
+          );
+          quickStatus.textContent = "Reviewed listing was pushed live to Shopify drafts successfully.";
         } else {
           quickStatus.textContent = origin === "quick"
             ? `Draft generated. Using image root: ${imageRoot}. Taxonomy auto-similar is ${autoApplyTaxonomyFromSimilar ? "on" : "off"}. Review rows below, then push dry before live.`
