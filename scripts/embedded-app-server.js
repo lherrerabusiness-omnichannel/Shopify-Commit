@@ -1522,7 +1522,8 @@ async function getVisionContextHint(options = {}) {
     ? options.imageNames.map((x) => String(x || "").trim()).filter(Boolean)
     : [];
   const suggestedProductType = String(options.suggestedProductType || "").trim();
-  if (!OPENAI_API_KEY || !imageRoot || !imageNames.length) {
+  const hasVisionProvider = Boolean(OPENAI_API_KEY || GEMINI_API_KEY);
+  if (!hasVisionProvider || !imageRoot || !imageNames.length) {
     return "";
   }
 
@@ -1623,6 +1624,108 @@ function extractAiMessageText(payload) {
   return "";
 }
 
+async function requestAiCopyRaw(provider, systemPrompt, userMessage, options = {}) {
+  const temperature = Number.isFinite(options.temperature) ? options.temperature : 0.3;
+  const maxTokens = Number.isFinite(options.maxTokens) ? options.maxTokens : 1800;
+
+  if (provider.provider === "gemini") {
+    // Gemini's JSON mode with responseMimeType guarantees structured output
+    const geminiBody = {
+      contents: [{ role: "user", parts: [{ text: userMessage }] }],
+      systemInstruction: { parts: [{ text: systemPrompt }] },
+      generationConfig: {
+        temperature,
+        maxOutputTokens: Math.max(maxTokens, 4096),
+        responseMimeType: "application/json",
+      },
+    };
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${provider.model}:generateContent?key=${provider.apiKey}`;
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(geminiBody),
+    });
+    if (!response.ok) {
+      const errText = await response.text().catch(() => "");
+      console.warn(`[ai-copy] ${provider.provider} error ${response.status}: ${errText.slice(0, 200)}`);
+      return "";
+    }
+    const payload = await response.json();
+    const text = String(payload?.candidates?.[0]?.content?.parts?.[0]?.text || "").trim();
+    if (!text) {
+      const finishReason = payload?.candidates?.[0]?.finishReason;
+      console.warn(`[ai-copy] gemini empty response, finishReason=${finishReason}`);
+    } else {
+      const fr = payload?.candidates?.[0]?.finishReason;
+      if (fr && fr !== "STOP") console.warn(`[ai-copy] gemini finishReason=${fr} (text may be truncated)`);
+    }
+    return text;
+  }
+
+  const response = await fetch(`${provider.baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${provider.apiKey}`,
+    },
+    body: JSON.stringify({
+      model: provider.model,
+      response_format: { type: "json_object" },
+      temperature,
+      max_tokens: maxTokens,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userMessage },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text().catch(() => "");
+    console.warn(`[ai-copy] ${provider.provider} error ${response.status}: ${errText.slice(0, 200)}`);
+    return "";
+  }
+
+  const payload = await response.json();
+  return extractAiMessageText(payload);
+}
+
+function buildInputGuidance(options = {}) {
+  const shortDescription = String(options.shortDescription || "").trim();
+  const imageNames = Array.isArray(options.imageNames)
+    ? options.imageNames.map((x) => String(x || "").trim()).filter(Boolean)
+    : [];
+  const row = options.row && typeof options.row === "object" ? options.row : {};
+
+  const missing = [];
+  const recommendations = [];
+
+  if (!shortDescription) missing.push("short_description");
+  if (!String(row.product_type || "").trim()) missing.push("product_type");
+  if (!String(row.vendor || "").trim()) missing.push("vendor");
+  if (!String(row.price || row.variant_price || "").trim()) missing.push("price");
+  if (!String(row.sku || row.variant_sku || "").trim()) missing.push("sku");
+  if (!imageNames.length) missing.push("images");
+
+  if (missing.includes("short_description")) recommendations.push("Add a 1-2 sentence short description with intended use and differentiator.");
+  if (missing.includes("product_type")) recommendations.push("Select a specific product type before generating copy.");
+  if (missing.includes("sku")) recommendations.push("Provide an internal SKU to support consistent naming and future automation.");
+  if (missing.includes("price")) recommendations.push("Provide a price or variant price to avoid $0 draft output.");
+  if (missing.includes("images")) recommendations.push("Upload at least one clear hero image for better vision grounding.");
+
+  const score = Math.max(0, 100 - (missing.length * 14));
+  const recommendedMode = score >= 80 ? "low-compute" : (score >= 55 ? "balanced" : "high-assist");
+
+  return {
+    score,
+    missing,
+    recommendedMode,
+    recommendations,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // AI copy generation - calls the configured provider (Gemini or OpenAI) with
 // the full product context prompt and returns structured JSON fields to merge.
@@ -1656,63 +1759,25 @@ async function aiGenerateProductCopy(options = {}) {
   ].filter(Boolean).join("\n");
 
   try {
-    const response = await fetch(`${provider.baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${provider.apiKey}`,
-      },
-      body: JSON.stringify({
-        model: provider.model,
-        response_format: { type: "json_object" },
-        temperature: 0.3,
-        max_tokens: 1800,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userMessage },
-        ],
-      }),
+    const raw = await requestAiCopyRaw(provider, systemPrompt, userMessage, {
+      temperature: 0.3,
+      maxTokens: 1800,
     });
-
-    if (!response.ok) {
-      const errText = await response.text().catch(() => "");
-      console.warn(`[ai-copy] ${provider.provider} error ${response.status}: ${errText.slice(0, 200)}`);
-      return null;
-    }
-
-    const payload = await response.json();
-    const raw = extractAiMessageText(payload);
     if (!raw) return null;
 
     let aiFields = parseAiJsonObject(raw);
     if (!aiFields) {
       // Retry once with a stricter, shorter instruction to recover from malformed JSON.
-      const retryResponse = await fetch(`${provider.baseUrl}/chat/completions`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${provider.apiKey}`,
-        },
-        body: JSON.stringify({
-          model: provider.model,
-          response_format: { type: "json_object" },
+      const retryRaw = await requestAiCopyRaw(
+        provider,
+        systemPrompt,
+        `${userMessage}\n\nIMPORTANT: return exactly one valid minified JSON object with double-quoted keys and values where applicable. No markdown or commentary.`,
+        {
           temperature: 0,
-          max_tokens: 1400,
-          messages: [
-            { role: "system", content: systemPrompt },
-            {
-              role: "user",
-              content: `${userMessage}\n\nIMPORTANT: return exactly one valid minified JSON object with double-quoted keys and values where applicable. No markdown or commentary.`,
-            },
-          ],
-        }),
-      });
-
-      if (retryResponse.ok) {
-        const retryPayload = await retryResponse.json();
-        const retryRaw = extractAiMessageText(retryPayload);
-        aiFields = parseAiJsonObject(retryRaw);
-      }
+          maxTokens: 1400,
+        }
+      );
+      aiFields = parseAiJsonObject(retryRaw);
     }
     if (!aiFields) {
       console.warn(`[ai-copy] ${provider.provider} returned non-parseable JSON payload.`);
@@ -4195,6 +4260,11 @@ function createServer() {
             brandProfile,
             aiGenerated,
             generationPrompt,
+            inputGuidance: buildInputGuidance({
+              shortDescription,
+              imageNames,
+              row: aiEnrichedRow,
+            }),
             contextSignals: {
               categoryProfile,
               typeHints,
@@ -4371,6 +4441,11 @@ function createServer() {
             suggestedProductType,
             aiGenerated,
             generationPrompt,
+            inputGuidance: buildInputGuidance({
+              shortDescription,
+              imageNames,
+              row: aiEnrichedRow,
+            }),
             contextSignals: {
               categoryProfile,
               typeHints,
