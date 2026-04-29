@@ -1012,6 +1012,7 @@
     let customCsvHeaders = [];
     let customCsvRow = {};
     let customCsvContent = "";
+    let customCsvUserEditedFields = new Set();
     let availableProductTypes = [];
     let latestSuggestedProductType = "";
     let latestSuggestionSource = "none";
@@ -1021,7 +1022,34 @@
     let autoTemplateInFlight = false;
     let uploadedImageRootCache = "";
     let uploadedImageSignature = "";
+    let lastAutoRefreshContext = {
+      description: "",
+      imageSignature: "",
+    };
     const classificationNoticeText = "Final classification stays under your control before publishing.";
+    const autoRefreshFieldKeys = [
+      "short_description",
+      "product_title",
+      "title",
+      "title_seed",
+      "handle",
+      "description",
+      "body_html",
+      "product_type",
+      "vendor",
+      "brand",
+      "tags",
+      "sku",
+      "base_type",
+      "wattage",
+      "voltage",
+      "lumen_output",
+      "color_temp",
+      "material",
+      "dimmable",
+      "ip_rating",
+      "source_notes",
+    ];
 
     function getParams() {
       const p = new URLSearchParams(window.location.search);
@@ -1146,6 +1174,45 @@
       return `${customCsvHeaders.map((header) => csvEscape(header)).join(",")}\n${row}\n`;
     }
 
+    function getCurrentRefreshContext() {
+      return {
+        description: String(quickDescriptionInput.value || "").trim(),
+        imageSignature: uploadedImageSignature || selectedImageFiles
+          .map((file) => `${String(file && file.name || "")}::${Number(file && file.size || 0)}`)
+          .join("|"),
+      };
+    }
+
+    function calculateSimilarity(str1, str2) {
+      if (!str1 && !str2) return 1;
+      if (!str1 || !str2) return 0;
+      const s1 = String(str1 || "").toLowerCase().trim();
+      const s2 = String(str2 || "").toLowerCase().trim();
+      if (s1 === s2) return 1;
+      const words1 = new Set(s1.split(/\s+/).filter(Boolean));
+      const words2 = new Set(s2.split(/\s+/).filter(Boolean));
+      const shared = new Set([...words1].filter((word) => words2.has(word)));
+      const total = words1.size + words2.size - shared.size;
+      return total > 0 ? shared.size / total : 0;
+    }
+
+    function hasMeaningfulContextChange(previousContext, nextContext) {
+      const prev = previousContext || { description: "", imageSignature: "" };
+      const next = nextContext || { description: "", imageSignature: "" };
+      if (String(prev.imageSignature || "") !== String(next.imageSignature || "")) {
+        return true;
+      }
+      return calculateSimilarity(prev.description, next.description) < 0.78;
+    }
+
+    function rememberAutoRefreshContext() {
+      lastAutoRefreshContext = getCurrentRefreshContext();
+    }
+
+    function getOverwriteFieldsForRefresh() {
+      return autoRefreshFieldKeys.filter((field) => customCsvHeaders.includes(field) && !customCsvUserEditedFields.has(field));
+    }
+
     function downloadTextFile(filename, content, mimeType = "text/plain;charset=utf-8") {
       const blob = new Blob([content], { type: mimeType });
       const url = URL.createObjectURL(blob);
@@ -1183,6 +1250,7 @@
           const idx = Number(input.getAttribute("data-csv-idx") || "-1");
           const key = idx >= 0 ? customCsvHeaders[idx] : "";
           if (!key) return;
+          customCsvUserEditedFields.add(key);
           customCsvRow[key] = input.value;
           customCsvContent = buildCsvFromCustomState();
           quickCsvBuilderStatus.textContent = `Custom CSV updated (${customCsvHeaders.length} columns).`;
@@ -1371,7 +1439,7 @@
       }
     }
 
-    async function autofillMissingReviewedFields() {
+    async function autofillMissingReviewedFields(options = {}) {
       if (!customCsvHeaders.length) return false;
       try {
         const imageRoot = String(customCsvRow.image_root || "").trim() || "assets/products";
@@ -1383,6 +1451,9 @@
           imageNames,
           imageRoot,
           suggestedProductType: String(customCsvRow.product_type || quickProductTypeInput.value || latestSuggestedProductType || "").trim(),
+          refreshSuggestedProductType: Boolean(options.refreshSuggestedProductType),
+          overwriteFields: Array.isArray(options.overwriteFields) ? options.overwriteFields : [],
+          lockedFields: Array.isArray(options.lockedFields) ? options.lockedFields : [],
         });
         const data = await res.json();
         if (!res.ok || !data.ok || !data.template) {
@@ -1391,13 +1462,49 @@
         customCsvRow = data.template.row && typeof data.template.row === "object" ? { ...data.template.row } : customCsvRow;
         customCsvContent = String(data.template.csvContent || buildCsvFromCustomState());
         setGeneratedPrompt(data.template.generationPrompt || "");
+        if (data.template.suggestedProductType) {
+          latestSuggestedProductType = String(data.template.suggestedProductType || "").trim();
+          quickProductTypeInput.value = String(customCsvRow.product_type || latestSuggestedProductType || "").trim();
+        }
         renderCustomCsvFields();
-        quickCsvBuilderStatus.textContent = "Missing fields auto-filled using available listing, image, template, and brand context.";
+        rememberAutoRefreshContext();
+        quickCsvBuilderStatus.textContent = Array.isArray(options.overwriteFields) && options.overwriteFields.length
+          ? "Context-sensitive fields refreshed using your latest description, images, and brand context."
+          : "Missing fields auto-filled using available listing, image, template, and brand context.";
         return true;
       } catch (error) {
         quickCsvBuilderStatus.textContent = `Autofill failed: ${String(error && error.message ? error.message : error)}`;
         return false;
       }
+    }
+
+    async function refreshReviewedFieldsFromContext(reason, options = {}) {
+      const context = getCurrentRefreshContext();
+      const hasRow = customCsvHeaders.length && Object.keys(customCsvRow || {}).length;
+      if (!hasRow) {
+        await generateCustomCsvFromImagesAndGoal();
+        await autofillMissingReviewedFields();
+        return true;
+      }
+
+      if (!options.force && !hasMeaningfulContextChange(lastAutoRefreshContext, context)) {
+        quickCsvBuilderStatus.textContent = "Context change was minor, so reviewed fields were left as-is.";
+        return false;
+      }
+
+      const overwriteFields = getOverwriteFieldsForRefresh();
+      if (!overwriteFields.length) {
+        quickCsvBuilderStatus.textContent = "All reviewed fields look manually tuned already. No auto-refresh applied.";
+        rememberAutoRefreshContext();
+        return false;
+      }
+
+      quickCsvBuilderStatus.textContent = `Refreshing reviewed fields from ${reason || "latest context"}...`;
+      return autofillMissingReviewedFields({
+        refreshSuggestedProductType: true,
+        overwriteFields,
+        lockedFields: Array.from(customCsvUserEditedFields),
+      });
     }
 
     function applySelectedProductTypeToCustomCsv() {
@@ -1457,6 +1564,7 @@
         customCsvHeaders = Array.isArray(data.template.headers) ? data.template.headers : [];
         customCsvRow = data.template.row && typeof data.template.row === "object" ? { ...data.template.row } : {};
         customCsvContent = String(data.template.csvContent || "");
+        customCsvUserEditedFields.clear();
         setGeneratedPrompt(data.template.generationPrompt || "");
         latestSuggestedProductType = String(data.template.suggestedProductType || "");
         latestSuggestionSource = String(data.template.suggestionSource || "store-match");
@@ -1469,6 +1577,7 @@
           quickProductTypeInput.value = String(data.template.suggestedProductType);
         }
         renderCustomCsvFields();
+        rememberAutoRefreshContext();
         quickCsvBuilderStatus.textContent = `Custom CSV generated. Suggested product type: ${data.template.suggestedProductType || "n/a"}.`;
         setCategoryCheckStatus(quickProductTypeInput.value || customCsvRow.product_type || "");
       } catch (error) {
@@ -1521,9 +1630,16 @@
           await ensureShortDescriptionFromImagesIfEmpty();
           const hasInputs = selectedImageFiles.length > 0 || String(quickDescriptionInput.value || "").trim();
           if (!hasInputs) return;
-          await generateCustomCsvFromImagesAndGoal();
-          await autofillMissingReviewedFields();
-          quickCsvBuilderStatus.textContent = `Auto-filled from available context (${reason || "auto"}). Review fields and generate when ready.`;
+          if (!customCsvHeaders.length || !Object.keys(customCsvRow || {}).length) {
+            await generateCustomCsvFromImagesAndGoal();
+            await autofillMissingReviewedFields();
+            quickCsvBuilderStatus.textContent = `Auto-filled from available context (${reason || "auto"}). Review fields and generate when ready.`;
+            return;
+          }
+          const refreshed = await refreshReviewedFieldsFromContext(reason || "auto", { force: false });
+          if (refreshed) {
+            quickCsvBuilderStatus.textContent = `Reviewed fields refreshed from available context (${reason || "auto"}).`;
+          }
         } finally {
           autoTemplateInFlight = false;
         }
@@ -1792,6 +1908,7 @@
       onboardingSampleBtn.disabled = true;
       onboardingFullBtn.disabled = true;
       try {
+        onboardingStatus.textContent = `Running onboarding ${mode}...`;
         const path = mode === "checks" ? "/api/onboarding/checks" : "/api/onboarding/run";
         const body = mode === "checks" ? {} : { mode };
         const res = await apiPost(path, body);
@@ -2683,6 +2800,14 @@
 
     quickDescriptionInput.addEventListener("input", () => {
       scheduleAutoTemplateGeneration("description-edit");
+    });
+
+    quickDescriptionInput.addEventListener("blur", async () => {
+      const currentValue = String(quickDescriptionInput.value || "").trim();
+      if (!currentValue) {
+        return;
+      }
+      await refreshReviewedFieldsFromContext("description blur", { force: true });
     });
 
     brandProfileImageUrlInput.addEventListener("input", () => {

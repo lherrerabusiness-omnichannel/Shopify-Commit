@@ -76,6 +76,7 @@ const CATEGORY_CONTEXT_CACHE_TTL_MS = 5 * 60 * 1000;
 const CATEGORY_CONTEXT_MAX_PRODUCTS = 12;
 
 const categoryContextCache = new Map();
+const visionContextCache = new Map();
 
 function toPosixPath(value) {
   return String(value || "").replace(/\\/g, "/");
@@ -1079,8 +1080,8 @@ function buildConsistencyReference(productType, liveCategoryContext, listingCons
   };
 }
 
-function inferSignalsFromContext(shortDescription, imageNames, productType) {
-  const joined = `${String(shortDescription || "")} ${Array.isArray(imageNames) ? imageNames.join(" ") : ""} ${String(productType || "")}`;
+function inferSignalsFromContext(shortDescription, imageNames, productType, extraContext = "") {
+  const joined = `${String(shortDescription || "")} ${Array.isArray(imageNames) ? imageNames.join(" ") : ""} ${String(productType || "")} ${String(extraContext || "")}`;
   const normalized = normalizeComparable(joined);
   const upper = String(joined || "").toUpperCase();
 
@@ -1090,9 +1091,10 @@ function inferSignalsFromContext(shortDescription, imageNames, productType) {
   const colorTempMatch = upper.match(/\b(2200|2400|2700|3000|3500|4000|5000|6500)\s?K\b/);
   const ipMatch = upper.match(/\bIP\s?([0-9]{2})\b/);
   const baseMatch = upper.match(/\b(MR16|MR11|MR8|PAR36|GU10|GU5\.3|E26|E27|G4)\b/);
+  const modelMatch = upper.match(/\b([A-Z0-9]{2,}(?:[-_/][A-Z0-9]{2,})+)\b/);
 
   let material = "";
-  const materialCandidates = ["brass", "bronze", "aluminum", "steel", "copper", "plastic"];
+  const materialCandidates = ["stainless steel", "cast brass", "solid brass", "brass", "bronze", "aluminum", "steel", "copper", "plastic"];
   for (const item of materialCandidates) {
     if (normalized.includes(item)) {
       material = item;
@@ -1100,13 +1102,31 @@ function inferSignalsFromContext(shortDescription, imageNames, productType) {
     }
   }
 
+  let finish = "";
+  const finishCandidates = ["aged brass", "antique brass", "matte black", "textured black", "bronze", "brass", "white", "stainless steel"];
+  for (const item of finishCandidates) {
+    if (normalized.includes(item)) {
+      finish = item;
+      break;
+    }
+  }
+
+  let installType = "";
+  if (normalized.includes("well light")) installType = "well light";
+  else if (normalized.includes("in ground") || normalized.includes("inground") || normalized.includes("recessed")) installType = "recessed in-ground";
+  else if (normalized.includes("uplight")) installType = "uplight";
+
+  const integratedLed = normalized.includes("integrated led") || (normalized.includes("integrated") && normalized.includes("led"));
+
   const suggestedTags = [];
   if (normalized.includes("outdoor") || normalized.includes("landscape")) suggestedTags.push("outdoor-lighting");
   if (normalized.includes("well") && normalized.includes("light")) suggestedTags.push("well-light");
   if (normalized.includes("low voltage") || normalized.includes("12v")) suggestedTags.push("12v");
   if (material) suggestedTags.push(material);
+  if (integratedLed) suggestedTags.push("integrated-led");
 
   return {
+    modelCode: modelMatch ? String(modelMatch[1]) : "",
     voltage: voltageMatch ? `${voltageMatch[1]}V` : "",
     wattage: wattageMatch ? `${wattageMatch[1]}W` : "",
     lumenOutput: lumenMatch ? String(lumenMatch[1]) : "",
@@ -1114,6 +1134,9 @@ function inferSignalsFromContext(shortDescription, imageNames, productType) {
     ipRating: ipMatch ? `IP${ipMatch[1]}` : "",
     baseType: baseMatch ? String(baseMatch[1]).replace("GU5.3", "GU5.3") : "",
     material,
+    finish,
+    installType,
+    integratedLed: integratedLed ? "yes" : "",
     dimmable: normalized.includes("non dim") ? "no" : (normalized.includes("dimm") ? "yes" : ""),
     suggestedTags,
   };
@@ -1147,6 +1170,7 @@ function buildStrongProductPrompt(options = {}) {
   const categoryProfile = options.categoryProfile || { requiredFields: [], requiredTags: [] };
   const consistencyReference = options.consistencyReference || { source: "none", fieldOptions: {} };
   const inferred = options.inferred || {};
+  const visionHint = String(options.visionHint || "").trim();
 
   const knownFacts = [
     `Product type candidate: ${suggestedProductType || "unknown"}`,
@@ -1168,7 +1192,8 @@ function buildStrongProductPrompt(options = {}) {
     `Consistency vendor options: ${Array.isArray(consistencyReference.fieldOptions && consistencyReference.fieldOptions.vendor) ? consistencyReference.fieldOptions.vendor.join(", ") : "(none)"}`,
     `Consistency tag options: ${Array.isArray(consistencyReference.fieldOptions && consistencyReference.fieldOptions.tags) ? consistencyReference.fieldOptions.tags.join(", ") : "(none)"}`,
     `Consistency price options: ${Array.isArray(consistencyReference.fieldOptions && consistencyReference.fieldOptions.price) ? consistencyReference.fieldOptions.price.join(", ") : "(none)"}`,
-    `Inferred specs from names/context: voltage=${inferred.voltage || ""}, wattage=${inferred.wattage || ""}, lumens=${inferred.lumenOutput || ""}, color_temp=${inferred.colorTemp || ""}, base_type=${inferred.baseType || ""}, material=${inferred.material || ""}, ip_rating=${inferred.ipRating || ""}`,
+    `Vision hint: ${visionHint || "(none)"}`,
+    `Inferred specs from names/context: model=${inferred.modelCode || ""}, voltage=${inferred.voltage || ""}, wattage=${inferred.wattage || ""}, lumens=${inferred.lumenOutput || ""}, color_temp=${inferred.colorTemp || ""}, base_type=${inferred.baseType || ""}, install_type=${inferred.installType || ""}, material=${inferred.material || ""}, finish=${inferred.finish || ""}, ip_rating=${inferred.ipRating || ""}`,
   ];
 
   const requestedFields = Object.keys(row).length ? Object.keys(row).join(", ") : "title, handle, description, product_type, tags, vendor, price, base_type, wattage, voltage, lumen_output, color_temp";
@@ -1444,6 +1469,30 @@ async function describeProductFromImagesWithVision(options = {}) {
   }
 }
 
+async function getVisionContextHint(options = {}) {
+  const imageRoot = String(options.imageRoot || "").trim();
+  const imageNames = Array.isArray(options.imageNames)
+    ? options.imageNames.map((x) => String(x || "").trim()).filter(Boolean)
+    : [];
+  const suggestedProductType = String(options.suggestedProductType || "").trim();
+  if (!OPENAI_API_KEY || !imageRoot || !imageNames.length) {
+    return "";
+  }
+
+  const cacheKey = `${toPosixPath(imageRoot)}::${imageNames.join("|")}::${normalizeComparable(suggestedProductType)}`;
+  if (visionContextCache.has(cacheKey)) {
+    return visionContextCache.get(cacheKey) || "";
+  }
+
+  const hint = await describeProductFromImagesWithVision({
+    imageRoot,
+    imageNames,
+    suggestedProductType,
+  });
+  visionContextCache.set(cacheKey, hint || "");
+  return hint || "";
+}
+
 function generateShortDescriptionFromContext(options = {}) {
   const suggestedProductType = String(options.suggestedProductType || "").trim();
   const brandProfile = options.brandProfile || createEmptyBrandProfile();
@@ -1464,6 +1513,13 @@ function firstNonEmpty(values) {
   return "";
 }
 
+function shouldPopulateField(targetRow, field, overwriteFields, lockedFields) {
+  if (!Object.prototype.hasOwnProperty.call(targetRow, field)) return false;
+  if (lockedFields.has(field)) return false;
+  if (!String(targetRow[field] || "").trim()) return true;
+  return overwriteFields.has(field);
+}
+
 function applyAutofillToRow(row, options = {}) {
   const next = { ...(row || {}) };
   const shortDescription = String(options.shortDescription || "").trim();
@@ -1476,7 +1532,10 @@ function applyAutofillToRow(row, options = {}) {
   const consistencyOptions = consistencyReference.fieldOptions || {};
   const websiteUrl = String(brandProfile.websiteUrl || "").trim();
   const storeDb = readStoreDb();
-  const inferred = inferSignalsFromContext(shortDescription, imageNames, suggestedProductType || next.product_type);
+  const overwriteFields = new Set(Array.isArray(options.overwriteFields) ? options.overwriteFields.map((x) => String(x || "").trim()).filter(Boolean) : []);
+  const lockedFields = new Set(Array.isArray(options.lockedFields) ? options.lockedFields.map((x) => String(x || "").trim()).filter(Boolean) : []);
+  const visionHint = String(options.visionHint || "").trim();
+  const inferred = inferSignalsFromContext(shortDescription, imageNames, suggestedProductType || next.product_type, visionHint);
 
   const effectiveProductType = firstNonEmpty([
     suggestedProductType,
@@ -1499,17 +1558,17 @@ function applyAutofillToRow(row, options = {}) {
     brandProfile.brandName,
     brandProfile.brandVendor,
   ]);
-  const titleLead = brandIdentity;
+  const titleLead = firstNonEmpty([brandIdentity, inferred.modelCode]);
   const compactTitle = [
     titleLead,
+    inferred.modelCode && titleLead === brandIdentity ? inferred.modelCode : "",
     effectiveProductType,
-    inferred.baseType,
+    inferred.installType,
+    firstNonEmpty([inferred.finish, inferred.material]),
     inferred.voltage,
-    inferred.material,
   ].filter(Boolean).join(" ").trim();
 
   const title = firstNonEmpty([
-    next.title,
     compactTitle,
     shortDescription,
     imageNames[0] ? String(imageNames[0]).replace(/\.[a-z0-9]+$/i, "") : "",
@@ -1526,33 +1585,43 @@ function applyAutofillToRow(row, options = {}) {
     inferred.ipRating ? `Rating: ${inferred.ipRating}` : "",
   ].filter(Boolean);
 
+  const detailParts = [
+    inferred.modelCode ? `Model ${inferred.modelCode}` : "",
+    inferred.installType ? `${inferred.installType} design` : "",
+    inferred.finish ? `Finish: ${inferred.finish}` : "",
+    visionHint ? `Visual context: ${visionHint}` : "",
+  ].filter(Boolean);
+
   const description = firstNonEmpty([
-    next.description,
-    next.body_html,
+    [
+      shortDescription || effectiveProductType || "Product",
+      detailParts.length ? `${detailParts.join(". ")}.` : "",
+      specParts.length ? `Specs: ${specParts.join("; ")}.` : "",
+    ].filter(Boolean).join(" ").trim(),
     templateDefaults && templateDefaults.defaultDescription,
-    specParts.length
-      ? `${shortDescription || effectiveProductType || "Product"}. ${specParts.join("; ")}.`
-      : "",
     shortDescription,
     brandProfile.notes,
   ]);
 
-  if (Object.prototype.hasOwnProperty.call(next, "title") && !String(next.title || "").trim()) {
+  if (shouldPopulateField(next, "short_description", overwriteFields, lockedFields)) {
+    next.short_description = firstNonEmpty([shortDescription, visionHint, title]);
+  }
+  if (shouldPopulateField(next, "title", overwriteFields, lockedFields)) {
     next.title = title;
   }
-  if (Object.prototype.hasOwnProperty.call(next, "handle") && !String(next.handle || "").trim()) {
+  if (shouldPopulateField(next, "handle", overwriteFields, lockedFields)) {
     next.handle = slugify(title);
   }
-  if (Object.prototype.hasOwnProperty.call(next, "description") && !String(next.description || "").trim()) {
+  if (shouldPopulateField(next, "description", overwriteFields, lockedFields)) {
     next.description = description;
   }
-  if (Object.prototype.hasOwnProperty.call(next, "body_html") && !String(next.body_html || "").trim()) {
+  if (shouldPopulateField(next, "body_html", overwriteFields, lockedFields)) {
     next.body_html = description;
   }
-  if (Object.prototype.hasOwnProperty.call(next, "product_type") && !String(next.product_type || "").trim()) {
+  if (shouldPopulateField(next, "product_type", overwriteFields, lockedFields)) {
     next.product_type = effectiveProductType;
   }
-  if (Object.prototype.hasOwnProperty.call(next, "vendor") && !String(next.vendor || "").trim()) {
+  if (shouldPopulateField(next, "vendor", overwriteFields, lockedFields)) {
     next.vendor = firstNonEmpty([
       brandIdentity,
       consistencyOptions.vendor && consistencyOptions.vendor[0],
@@ -1560,52 +1629,55 @@ function applyAutofillToRow(row, options = {}) {
       brandProfile.brandVendor,
     ]);
   }
-  if (Object.prototype.hasOwnProperty.call(next, "brand") && !String(next.brand || "").trim()) {
+  if (shouldPopulateField(next, "brand", overwriteFields, lockedFields)) {
     next.brand = brandIdentity;
   }
-  if (Object.prototype.hasOwnProperty.call(next, "price") && !String(next.price || "").trim()) {
+  if (shouldPopulateField(next, "price", overwriteFields, lockedFields)) {
     next.price = firstNonEmpty([
       templateDefaults && templateDefaults.defaultPrice,
       consistencyOptions.price && consistencyOptions.price[0],
     ]);
   }
-  if (Object.prototype.hasOwnProperty.call(next, "tags") && !String(next.tags || "").trim()) {
+  if (shouldPopulateField(next, "tags", overwriteFields, lockedFields)) {
     next.tags = mergedTags.join("|");
   }
-  if (Object.prototype.hasOwnProperty.call(next, "status") && !String(next.status || "").trim()) {
+  if (shouldPopulateField(next, "status", overwriteFields, lockedFields)) {
     next.status = "DRAFT";
   }
-  if (Object.prototype.hasOwnProperty.call(next, "product_title") && !String(next.product_title || "").trim()) {
+  if (shouldPopulateField(next, "product_title", overwriteFields, lockedFields)) {
     next.product_title = title;
   }
-  if (Object.prototype.hasOwnProperty.call(next, "title_seed") && !String(next.title_seed || "").trim()) {
+  if (shouldPopulateField(next, "title_seed", overwriteFields, lockedFields)) {
     next.title_seed = compactTitle || title;
   }
-  if (Object.prototype.hasOwnProperty.call(next, "base_type") && !String(next.base_type || "").trim()) {
+  if (shouldPopulateField(next, "sku", overwriteFields, lockedFields)) {
+    next.sku = inferred.modelCode;
+  }
+  if (shouldPopulateField(next, "base_type", overwriteFields, lockedFields)) {
     next.base_type = firstNonEmpty([inferred.baseType, consistencyOptions.base_type && consistencyOptions.base_type[0]]);
   }
-  if (Object.prototype.hasOwnProperty.call(next, "wattage") && !String(next.wattage || "").trim()) {
+  if (shouldPopulateField(next, "wattage", overwriteFields, lockedFields)) {
     next.wattage = firstNonEmpty([inferred.wattage, consistencyOptions.wattage && consistencyOptions.wattage[0]]);
   }
-  if (Object.prototype.hasOwnProperty.call(next, "voltage") && !String(next.voltage || "").trim()) {
+  if (shouldPopulateField(next, "voltage", overwriteFields, lockedFields)) {
     next.voltage = firstNonEmpty([inferred.voltage, consistencyOptions.voltage && consistencyOptions.voltage[0]]);
   }
-  if (Object.prototype.hasOwnProperty.call(next, "lumen_output") && !String(next.lumen_output || "").trim()) {
+  if (shouldPopulateField(next, "lumen_output", overwriteFields, lockedFields)) {
     next.lumen_output = inferred.lumenOutput;
   }
-  if (Object.prototype.hasOwnProperty.call(next, "color_temp") && !String(next.color_temp || "").trim()) {
+  if (shouldPopulateField(next, "color_temp", overwriteFields, lockedFields)) {
     next.color_temp = firstNonEmpty([inferred.colorTemp, consistencyOptions.color_temp && consistencyOptions.color_temp[0]]);
   }
-  if (Object.prototype.hasOwnProperty.call(next, "material") && !String(next.material || "").trim()) {
+  if (shouldPopulateField(next, "material", overwriteFields, lockedFields)) {
     next.material = inferred.material;
   }
-  if (Object.prototype.hasOwnProperty.call(next, "dimmable") && !String(next.dimmable || "").trim()) {
+  if (shouldPopulateField(next, "dimmable", overwriteFields, lockedFields)) {
     next.dimmable = inferred.dimmable;
   }
-  if (Object.prototype.hasOwnProperty.call(next, "ip_rating") && !String(next.ip_rating || "").trim()) {
+  if (shouldPopulateField(next, "ip_rating", overwriteFields, lockedFields)) {
     next.ip_rating = inferred.ipRating;
   }
-  if (Object.prototype.hasOwnProperty.call(next, "source_notes") && !String(next.source_notes || "").trim()) {
+  if (shouldPopulateField(next, "source_notes", overwriteFields, lockedFields)) {
     const notes = [];
     if (Array.isArray(typeHints.matchingCollections) && typeHints.matchingCollections.length) {
       notes.push(`collections=${typeHints.matchingCollections.slice(0, 3).join("|")}`);
@@ -1616,6 +1688,12 @@ function applyAutofillToRow(row, options = {}) {
     if (shortDescription) {
       notes.push(`goal=${shortDescription.slice(0, 120)}`);
     }
+    if (inferred.modelCode) {
+      notes.push(`model=${inferred.modelCode}`);
+    }
+    if (visionHint) {
+      notes.push(`vision=${visionHint.slice(0, 140)}`);
+    }
     if (consistencyReference.source) {
       notes.push(`consistency=${consistencyReference.source}`);
     }
@@ -1623,11 +1701,11 @@ function applyAutofillToRow(row, options = {}) {
   }
   ["website", "brand_website", "website_url", "brand_url", "reference_url", "reference_link", "source_url"]
     .forEach((field) => {
-      if (Object.prototype.hasOwnProperty.call(next, field) && !String(next[field] || "").trim()) {
+      if (shouldPopulateField(next, field, overwriteFields, lockedFields)) {
         next[field] = websiteUrl;
       }
     });
-  if (Object.prototype.hasOwnProperty.call(next, "metafields_json") && !String(next.metafields_json || "").trim()) {
+  if (shouldPopulateField(next, "metafields_json", overwriteFields, lockedFields)) {
     next.metafields_json = JSON.stringify(buildMetafieldSeed(8));
   }
 
@@ -3617,6 +3695,7 @@ function createServer() {
         const imageRoot = String(body.imageRoot || "assets/products").trim() || "assets/products";
         const suggestion = suggestProductType(shopContext, shortDescription, imageNames);
         const suggestedProductType = suggestion.productType;
+        const visionHint = await getVisionContextHint({ imageRoot, imageNames, suggestedProductType, shortDescription });
         const profile = readBrandProfile(shopContext.paths.brandProfilePath);
         const fallbackProfile = readDefaultBrandProfileFromCsv();
         const brandProfile = {
@@ -3652,6 +3731,7 @@ function createServer() {
           templateDefaults,
           brandProfile,
           consistencyReference,
+          visionHint,
         });
         const storeDb = readStoreDb();
         const effectiveType = String(autofilledRow.product_type || suggestedProductType || "").trim();
@@ -3663,7 +3743,7 @@ function createServer() {
           consistencyState,
           categoryProfile
         );
-        const inferred = inferSignalsFromContext(shortDescription, imageNames, effectiveType);
+        const inferred = inferSignalsFromContext(shortDescription, imageNames, effectiveType, visionHint);
         const generationPrompt = buildStrongProductPrompt({
           shortDescription,
           imageNames,
@@ -3675,6 +3755,7 @@ function createServer() {
           categoryProfile,
           consistencyReference: effectiveConsistencyReference,
           inferred,
+          visionHint,
         });
         const csvContent = [
           draft.headers.map((header) => csvEscape(header)).join(","),
@@ -3700,6 +3781,7 @@ function createServer() {
               typeHints,
               consistencyReference: effectiveConsistencyReference,
               inferred,
+              visionHint,
             },
           },
         });
@@ -3777,7 +3859,17 @@ function createServer() {
           ? body.imageNames.map((x) => String(x || "").trim()).filter(Boolean)
           : [];
         const imageRoot = String(body.imageRoot || "assets/products").trim() || "assets/products";
-        const suggestedProductType = String(body.suggestedProductType || "").trim();
+        const refreshSuggestedProductType = Boolean(body.refreshSuggestedProductType);
+        const suggestedProductType = refreshSuggestedProductType
+          ? suggestProductType(shopContext, shortDescription, imageNames).productType
+          : String(body.suggestedProductType || "").trim();
+        const overwriteFields = Array.isArray(body.overwriteFields)
+          ? body.overwriteFields.map((x) => String(x || "").trim()).filter(Boolean)
+          : [];
+        const lockedFields = Array.isArray(body.lockedFields)
+          ? body.lockedFields.map((x) => String(x || "").trim()).filter(Boolean)
+          : [];
+        const visionHint = await getVisionContextHint({ imageRoot, imageNames, suggestedProductType, shortDescription });
         const profile = readBrandProfile(shopContext.paths.brandProfilePath);
         const fallbackProfile = readDefaultBrandProfileFromCsv();
         const brandProfile = {
@@ -3808,6 +3900,9 @@ function createServer() {
           templateDefaults,
           brandProfile,
           consistencyReference,
+          overwriteFields,
+          lockedFields,
+          visionHint,
         });
         const storeDb = readStoreDb();
         const effectiveType = String(filled.product_type || suggestedProductType || "").trim();
@@ -3819,7 +3914,7 @@ function createServer() {
           consistencyState,
           categoryProfile
         );
-        const inferred = inferSignalsFromContext(shortDescription, imageNames, effectiveType);
+        const inferred = inferSignalsFromContext(shortDescription, imageNames, effectiveType, visionHint);
         const generationPrompt = buildStrongProductPrompt({
           shortDescription,
           imageNames,
@@ -3831,6 +3926,7 @@ function createServer() {
           categoryProfile,
           consistencyReference: effectiveConsistencyReference,
           inferred,
+          visionHint,
         });
         const csvContent = [
           headers.map((header) => csvEscape(header)).join(","),
@@ -3844,12 +3940,14 @@ function createServer() {
             row: filled,
             csvContent,
             brandProfile,
+            suggestedProductType,
             generationPrompt,
             contextSignals: {
               categoryProfile,
               typeHints,
               consistencyReference: effectiveConsistencyReference,
               inferred,
+              visionHint,
             },
           },
         });
