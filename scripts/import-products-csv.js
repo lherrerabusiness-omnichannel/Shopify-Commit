@@ -237,6 +237,14 @@ function splitPipeList(value) {
     .filter(Boolean);
 }
 
+function firstNonEmptyValue(...values) {
+  for (const value of values) {
+    const text = normalizeText(value);
+    if (text) return text;
+  }
+  return "";
+}
+
 function toBool(value, fallback = false) {
   const raw = normalizeText(value).toLowerCase();
   if (!raw) return fallback;
@@ -1341,14 +1349,30 @@ function resolveImageSet(imageRoot, imageFolder, rules) {
 
 function buildSpecs(row) {
   return {
-    bulb_shape: normalizeText(row.bulb_shape),
-    base_type: normalizeText(row.base_type),
-    wattage: normalizeText(row.wattage),
-    voltage: normalizeText(row.voltage),
-    lumen_output: normalizeText(row.lumen_output),
-    color_temp: normalizeText(row.color_temp),
-    dimmable: normalizeText(row.dimmable),
+    bulb_shape: firstNonEmptyValue(row.bulb_shape, row.bulbShape, row.shape),
+    base_type: firstNonEmptyValue(row.base_type, row.base, row.socket_type, row.bulb_base),
+    wattage: firstNonEmptyValue(row.wattage, row.variant_wattage, row.power, row.watts),
+    voltage: firstNonEmptyValue(row.voltage, row.variant_voltage, row.operating_voltage, row.input_voltage),
+    lumen_output: firstNonEmptyValue(row.lumen_output, row.lumens, row.output_lumens),
+    color_temp: firstNonEmptyValue(row.color_temp, row.kelvin, row.color_temperature),
+    dimmable: firstNonEmptyValue(row.dimmable, row.is_dimmable),
   };
+}
+
+function buildKeyFeatures(row, specs) {
+  const explicit = splitPipeList(
+    firstNonEmptyValue(row.key_features, row.features, row.highlights, row.bullet_points, row.key_benefits),
+  );
+  if (explicit.length) return explicit;
+
+  return [
+    specs.base_type ? `${specs.base_type} base` : "",
+    specs.voltage ? `${specs.voltage} operation` : "",
+    specs.wattage ? `${specs.wattage} power draw` : "",
+    specs.color_temp ? `${specs.color_temp} light color` : "",
+    specs.lumen_output ? `${specs.lumen_output} lumen output` : "",
+    specs.dimmable ? `Dimmable: ${specs.dimmable}` : "",
+  ].filter(Boolean);
 }
 
 function specsToMetafields(specs) {
@@ -1412,7 +1436,7 @@ function buildTitle(sourceTitle, specs) {
   return normalizeTitleCase(parts.join(" "));
 }
 
-function buildDescription(shortDescription, specs, vendor) {
+function buildDescription(shortDescription, specs, vendor, keyFeatures = []) {
   const intro = normalizeText(shortDescription)
     || "Draft description generated from import data. Verify specifications before publishing.";
 
@@ -1437,11 +1461,18 @@ function buildDescription(shortDescription, specs, vendor) {
   if (specs.color_temp) lines.push(`<li>Color temperature: ${specs.color_temp}</li>`);
   if (specs.dimmable) lines.push(`<li>Dimmable: ${specs.dimmable}</li>`);
 
-  if (!lines.length) {
+  const featureLines = (Array.isArray(keyFeatures) ? keyFeatures : [])
+    .map((feature) => normalizeText(feature))
+    .filter(Boolean)
+    .map((feature) => `<li>${feature}</li>`);
+
+  const allLines = [...lines, ...featureLines];
+
+  if (!allLines.length) {
     return `<p>${intro}${highlightLine}</p>`;
   }
 
-  return `<p>${intro}${highlightLine}</p><ul>${lines.join("")}</ul>`;
+  return `<p>${intro}${highlightLine}</p><ul>${allLines.join("")}</ul>`;
 }
 
 function buildSeo(title, shortDescription, specs) {
@@ -1746,6 +1777,7 @@ function convertRows(rows, options) {
           color_temp: "",
           dimmable: "",
         },
+        keyFeatures: [],
         optionNames: [],
         hasMissingSku: false,
         hasMissingPrice: false,
@@ -1785,6 +1817,9 @@ function convertRows(rows, options) {
       if (!group.specs[key] && value) {
         group.specs[key] = value;
       }
+    }
+    if (!group.keyFeatures.length) {
+      group.keyFeatures = buildKeyFeatures(row, rowSpecs);
     }
 
     const dynamicMetafields = buildDynamicMetafields(row, options.schema, reservedKeys);
@@ -1869,7 +1904,7 @@ function convertRows(rows, options) {
     const categoryProfile = getCategoryProfile(productType, options.rules);
 
     const title = buildTitle(group.sourceTitle, group.specs);
-    const descriptionHtml = buildDescription(group.shortDescription, group.specs, group.vendor);
+    const descriptionHtml = buildDescription(group.shortDescription, group.specs, group.vendor, group.keyFeatures);
     const seo = buildSeo(title, group.shortDescription, group.specs);
     const confidence = scoreConfidence(group, requiredSpecFields);
     const missingSpecs = evaluateRequiredFields(group, group.specs, categoryProfile);
@@ -2013,6 +2048,7 @@ function convertRows(rows, options) {
         requiredFixes: fixPrompts,
         mappedDynamicMetafields: group.dynamicMetafields.map((m) => `${m.namespace}.${m.key}`),
         inferredFields: group.inferredFields,
+        keyFeatures: group.keyFeatures,
         mappedProductType,
         taxonomyAutoApplyFromSimilar: autoApplyTaxonomyFromSimilar,
         classificationNotice: CLASSIFICATION_NOTICE,
