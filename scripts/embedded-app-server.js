@@ -1521,6 +1521,31 @@ function shouldPopulateField(targetRow, field, overwriteFields, lockedFields) {
   return overwriteFields.has(field);
 }
 
+// Known product/lighting codes that should always be ALL-CAPS
+const KNOWN_PRODUCT_CODES = new Set([
+  "MR16", "MR11", "MR8", "PAR36", "PAR38", "PAR30", "PAR20",
+  "GU10", "GU5.3", "E26", "E27", "E12", "G4", "G9", "GX53",
+  "LED", "AC", "DC", "AC/DC", "IP65", "IP67", "IP68", "IP44",
+  "RGB", "RGBW", "CCT", "CRI", "3000K", "2700K", "4000K", "5000K",
+  "A19", "A21", "B11", "B10", "T8", "T10", "BR30", "BR40",
+]);
+
+// Regex pattern for tokens that look like product codes: must contain at least one digit (e.g. MR16, GU10, E26, A19, IP67)
+const PRODUCT_CODE_RE = /^[A-Z][A-Z0-9]*[0-9][A-Z0-9]*(?:[/.][A-Z0-9]{1,6})?$/;
+
+function normalizeTitleCase(str) {
+  if (!String(str || "").trim()) return str;
+  return String(str).replace(/\S+/g, (word) => {
+    const upper = word.toUpperCase();
+    // Preserve known codes
+    if (KNOWN_PRODUCT_CODES.has(upper)) return upper;
+    // Preserve anything that matches product code pattern when uppercased
+    if (PRODUCT_CODE_RE.test(upper) && word.length <= 8) return upper;
+    // Standard title-case: capitalize first letter, lowercase rest
+    return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+  });
+}
+
 function applyAutofillToRow(row, options = {}) {
   const next = { ...(row || {}) };
   const shortDescription = String(options.shortDescription || "").trim();
@@ -1593,12 +1618,16 @@ function applyAutofillToRow(row, options = {}) {
     visionHint ? `Visual context: ${visionHint}` : "",
   ].filter(Boolean);
 
+  // Build a keyword-rich description using the premium user input as the lead sentence
+  const descriptionLead = shortDescription || (effectiveProductType ? `${effectiveProductType} by ${brandIdentity || "Ironsmith Lighting"}` : "Product");
+  const descriptionBody = [
+    detailParts.length ? detailParts.join(". ") + "." : "",
+    specParts.length ? `Specs: ${specParts.join("; ")}.` : "",
+    brandIdentity ? `By ${brandIdentity}.` : "",
+  ].filter(Boolean).join(" ").trim();
+
   const description = firstNonEmpty([
-    [
-      shortDescription || effectiveProductType || "Product",
-      detailParts.length ? `${detailParts.join(". ")}.` : "",
-      specParts.length ? `Specs: ${specParts.join("; ")}.` : "",
-    ].filter(Boolean).join(" ").trim(),
+    `${descriptionLead}${descriptionBody ? " " + descriptionBody : ""}`.trim(),
     templateDefaults && templateDefaults.defaultDescription,
     shortDescription,
     brandProfile.notes,
@@ -1608,10 +1637,10 @@ function applyAutofillToRow(row, options = {}) {
     next.short_description = firstNonEmpty([shortDescription, visionHint, title]);
   }
   if (shouldPopulateField(next, "title", overwriteFields, lockedFields)) {
-    next.title = title;
+    next.title = normalizeTitleCase(title);
   }
   if (shouldPopulateField(next, "handle", overwriteFields, lockedFields)) {
-    next.handle = slugify(title);
+    next.handle = slugify(normalizeTitleCase(title));
   }
   if (shouldPopulateField(next, "description", overwriteFields, lockedFields)) {
     next.description = description;

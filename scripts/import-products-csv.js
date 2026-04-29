@@ -2,6 +2,25 @@ const fs = require("fs");
 const path = require("path");
 const { parse } = require("csv-parse/sync");
 
+const KNOWN_PRODUCT_CODES = new Set([
+  "MR16", "MR11", "MR8", "PAR36", "PAR38", "PAR30", "PAR20",
+  "GU10", "GU5.3", "E26", "E27", "E12", "G4", "G9", "GX53",
+  "LED", "AC", "DC", "AC/DC", "IP65", "IP67", "IP68", "IP44",
+  "RGB", "RGBW", "CCT", "CRI", "3000K", "2700K", "4000K", "5000K",
+  "A19", "A21", "B11", "B10", "T8", "T10", "BR30", "BR40",
+]);
+const PRODUCT_CODE_RE = /^[A-Z][A-Z0-9]*[0-9][A-Z0-9]*(?:[/.][A-Z0-9]{1,6})?$/;
+
+function normalizeTitleCase(str) {
+  if (!String(str || "").trim()) return str;
+  return String(str).replace(/\S+/g, (word) => {
+    const upper = word.toUpperCase();
+    if (KNOWN_PRODUCT_CODES.has(upper)) return upper;
+    if (PRODUCT_CODE_RE.test(upper) && word.length <= 8) return upper;
+    return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+  });
+}
+
 const ONE_TAB_REQUIRED_HEADERS = [
   "group_id",
   "product_title",
@@ -1381,7 +1400,7 @@ function inferSpecValues(specs) {
 
 function buildTitle(sourceTitle, specs) {
   const raw = normalizeText(sourceTitle);
-  if (raw) return raw;
+  if (raw) return normalizeTitleCase(raw);
 
   const parts = [];
   if (specs.bulb_shape) parts.push(specs.bulb_shape);
@@ -1390,12 +1409,24 @@ function buildTitle(sourceTitle, specs) {
   if (specs.wattage) parts.push(`${specs.wattage}W`);
 
   if (!parts.length) return "Untitled Lighting Product";
-  return parts.join(" ");
+  return normalizeTitleCase(parts.join(" "));
 }
 
-function buildDescription(shortDescription, specs) {
+function buildDescription(shortDescription, specs, vendor) {
   const intro = normalizeText(shortDescription)
     || "Draft description generated from import data. Verify specifications before publishing.";
+
+  // Build a keyword-rich secondary sentence from specs
+  const highlightParts = [
+    specs.base_type ? `${specs.base_type} base` : "",
+    specs.wattage ? `${specs.wattage}W` : "",
+    specs.voltage ? `${specs.voltage}` : "",
+    specs.color_temp ? `${specs.color_temp}` : "",
+    specs.lumen_output ? `${specs.lumen_output} lumens` : "",
+  ].filter(Boolean);
+
+  const vendorLine = vendor ? ` ${vendor}.` : "";
+  const highlightLine = highlightParts.length ? ` Features: ${highlightParts.join(", ")}.${vendorLine}` : vendorLine;
 
   const lines = [];
   if (specs.bulb_shape) lines.push(`<li>Bulb shape: ${specs.bulb_shape}</li>`);
@@ -1407,16 +1438,30 @@ function buildDescription(shortDescription, specs) {
   if (specs.dimmable) lines.push(`<li>Dimmable: ${specs.dimmable}</li>`);
 
   if (!lines.length) {
-    return `<p>${intro}</p>`;
+    return `<p>${intro}${highlightLine}</p>`;
   }
 
-  return `<p>${intro}</p><ul>${lines.join("")}</ul>`;
+  return `<p>${intro}${highlightLine}</p><ul>${lines.join("")}</ul>`;
 }
 
 function buildSeo(title, shortDescription, specs) {
-  const seoTitle = [title, specs.base_type, specs.color_temp].filter(Boolean).join(" ").slice(0, 70);
-  const seoDescription = (normalizeText(shortDescription)
-    || `${title}. Draft listing generated for review before publish.`).slice(0, 155);
+  // Build a keyword-rich SEO title: product title + key specs
+  const seoKeywords = [specs.base_type, specs.color_temp, specs.wattage ? `${specs.wattage}W` : "", specs.voltage].filter(Boolean);
+  const seoTitle = [title, ...seoKeywords].join(" ").slice(0, 70);
+
+  // SEO description: use the premium shortDescription as primary, pad with specs
+  const specSummary = [
+    specs.base_type ? `Base: ${specs.base_type}` : "",
+    specs.voltage ? `${specs.voltage}` : "",
+    specs.wattage ? `${specs.wattage}W` : "",
+    specs.color_temp ? `${specs.color_temp}` : "",
+    specs.lumen_output ? `${specs.lumen_output} lm` : "",
+  ].filter(Boolean).join(", ");
+
+  const descBase = normalizeText(shortDescription) || title;
+  const seoDescription = specSummary
+    ? `${descBase}. ${specSummary}.`.slice(0, 155)
+    : descBase.slice(0, 155);
 
   return {
     title: seoTitle || title.slice(0, 70),
@@ -1824,7 +1869,7 @@ function convertRows(rows, options) {
     const categoryProfile = getCategoryProfile(productType, options.rules);
 
     const title = buildTitle(group.sourceTitle, group.specs);
-    const descriptionHtml = buildDescription(group.shortDescription, group.specs);
+    const descriptionHtml = buildDescription(group.shortDescription, group.specs, group.vendor);
     const seo = buildSeo(title, group.shortDescription, group.specs);
     const confidence = scoreConfidence(group, requiredSpecFields);
     const missingSpecs = evaluateRequiredFields(group, group.specs, categoryProfile);

@@ -192,6 +192,11 @@ async function createProduct(productInput) {
           title
           handle
           status
+          variants(first: 1) {
+            nodes {
+              id
+            }
+          }
         }
         userErrors {
           field
@@ -203,6 +208,189 @@ async function createProduct(productInput) {
 
   const data = await callShopify(mutation, { product: productInput });
   return data.productCreate;
+}
+
+async function setDefaultVariantPrice(productId, defaultVariantId, price, sku) {
+  if (!defaultVariantId || !price) return null;
+
+  const mutation = `
+    mutation ProductVariantsBulkUpdate($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+      productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+        productVariants {
+          id
+          price
+          sku
+        }
+        userErrors {
+          field
+          message
+        }
+      }
+    }
+  `;
+
+  const variantInput = { id: defaultVariantId, price: String(price) };
+  if (sku) variantInput.sku = String(sku);
+
+  const data = await callShopify(mutation, {
+    productId,
+    variants: [variantInput],
+  });
+  return data.productVariantsBulkUpdate;
+}
+
+async function stagedUploadCreate(filename, mimeType, fileSize) {
+  const mutation = `
+    mutation stagedUploadsCreate($input: [StagedUploadInput!]!) {
+      stagedUploadsCreate(input: $input) {
+        stagedTargets {
+          url
+          resourceUrl
+          parameters {
+            name
+            value
+          }
+        }
+        userErrors {
+          field
+          message
+        }
+      }
+    }
+  `;
+
+  const data = await callShopify(mutation, {
+    input: [{
+      filename,
+      mimeType,
+      fileSize: String(fileSize),
+      resource: "IMAGE",
+      httpMethod: "POST",
+    }],
+  });
+  return data.stagedUploadsCreate;
+}
+
+async function uploadFileToStage(stagedTarget, fileBuffer, filename, mimeType) {
+  const https = require("https");
+  const http = require("http");
+  const url = new URL(stagedTarget.url);
+
+  // Build multipart form body
+  const boundary = "----ShopifyBoundary" + Date.now().toString(16);
+  const parts = [];
+
+  for (const param of (stagedTarget.parameters || [])) {
+    parts.push(
+      `--${boundary}\r\nContent-Disposition: form-data; name="${param.name}"\r\n\r\n${param.value}`
+    );
+  }
+
+  const fileHeader = `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: ${mimeType}\r\n\r\n`;
+  const fileFooter = `\r\n--${boundary}--`;
+
+  const headerBuf = Buffer.from(parts.join("\r\n") + (parts.length ? "\r\n" : "") + fileHeader, "utf8");
+  const footerBuf = Buffer.from(fileFooter, "utf8");
+  const body = Buffer.concat([headerBuf, fileBuffer, footerBuf]);
+
+  return new Promise((resolve, reject) => {
+    const transport = url.protocol === "https:" ? https : http;
+    const req = transport.request({
+      method: "POST",
+      hostname: url.hostname,
+      port: url.port || (url.protocol === "https:" ? 443 : 80),
+      path: url.pathname + url.search,
+      headers: {
+        "Content-Type": `multipart/form-data; boundary=${boundary}`,
+        "Content-Length": body.length,
+      },
+    }, (res) => {
+      let data = "";
+      res.on("data", (chunk) => { data += chunk; });
+      res.on("end", () => {
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          resolve(data);
+        } else {
+          reject(new Error(`Staged upload failed HTTP ${res.statusCode}: ${data.slice(0, 200)}`));
+        }
+      });
+    });
+    req.on("error", reject);
+    req.write(body);
+    req.end();
+  });
+}
+
+async function attachMediaToProduct(productId, resourceUrl, altText) {
+  const mutation = `
+    mutation productCreateMedia($productId: ID!, $media: [CreateMediaInput!]!) {
+      productCreateMedia(productId: $productId, media: $media) {
+        media {
+          ... on MediaImage {
+            id
+            image { url }
+          }
+        }
+        mediaUserErrors {
+          field
+          message
+        }
+      }
+    }
+  `;
+
+  const data = await callShopify(mutation, {
+    productId,
+    media: [{ originalSource: resourceUrl, alt: altText || "", mediaContentType: "IMAGE" }],
+  });
+  return data.productCreateMedia;
+}
+
+async function uploadProductImages(productId, imagePaths, label) {
+  if (!imagePaths || !imagePaths.length) return;
+
+  const mime = require("mime-types") || null;
+
+  for (const [idx, imgPath] of imagePaths.entries()) {
+    const absPath = path.resolve(process.cwd(), imgPath);
+
+    if (!fs.existsSync(absPath)) {
+      console.warn(`  [image] File not found, skipping: ${imgPath}`);
+      continue;
+    }
+
+    const fileBuffer = fs.readFileSync(absPath);
+    if (!fileBuffer.length) {
+      console.warn(`  [image] Empty file, skipping: ${imgPath}`);
+      continue;
+    }
+
+    const filename = path.basename(absPath);
+    // Determine MIME type from extension
+    const ext = path.extname(filename).toLowerCase();
+    const mimeMap = { ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp", ".gif": "image/gif" };
+    const mimeType = mimeMap[ext] || "image/jpeg";
+
+    try {
+      const staged = await stagedUploadCreate(filename, mimeType, fileBuffer.length);
+      if (staged.userErrors && staged.userErrors.length) {
+        console.warn(`  [image] Staged upload create error for ${filename}:`, staged.userErrors[0].message);
+        continue;
+      }
+
+      const target = staged.stagedTargets[0];
+      await uploadFileToStage(target, fileBuffer, filename, mimeType);
+
+      const mediaResult = await attachMediaToProduct(productId, target.resourceUrl, `${label || "Product"} image ${idx + 1}`);
+      if (mediaResult && mediaResult.mediaUserErrors && mediaResult.mediaUserErrors.length) {
+        console.warn(`  [image] Media attach error for ${filename}:`, mediaResult.mediaUserErrors[0].message);
+      } else {
+        console.log(`  [image] Uploaded: ${filename}`);
+      }
+    } catch (err) {
+      console.warn(`  [image] Failed to upload ${filename}: ${err.message}`);
+    }
+  }
 }
 
 async function findProductByHandle(handle) {
@@ -232,6 +420,11 @@ async function updateProduct(productId, productInput) {
           title
           handle
           status
+          variants(first: 1) {
+            nodes {
+              id
+            }
+          }
         }
         userErrors {
           field
@@ -300,6 +493,19 @@ async function pushProducts(products, dryRun) {
       continue;
     }
 
+    // Extract price/sku from the first variant
+    const firstVariant = Array.isArray(product.variants) && product.variants.length ? product.variants[0] : null;
+    const variantPrice = firstVariant && firstVariant.price ? String(firstVariant.price) : null;
+    const variantSku = firstVariant && firstVariant.sku ? String(firstVariant.sku) : null;
+
+    // Collect image paths from product source
+    const heroImage = product?.source?.heroImage || "";
+    const imageCandidates = Array.isArray(product?.source?.imageCandidates) ? product.source.imageCandidates : [];
+    // Hero image first, then additional candidates (deduplicated)
+    const orderedImages = heroImage
+      ? [heroImage, ...imageCandidates.filter((p) => p !== heroImage)]
+      : imageCandidates;
+
     try {
       if (product.handle) {
         const existing = await findProductByHandle(product.handle);
@@ -314,6 +520,20 @@ async function pushProducts(products, dryRun) {
           }
 
           console.log(`[${label}] Updated: ${result.product.title} (${result.product.handle})`);
+
+          // Set price on default variant for existing product
+          if (variantPrice) {
+            const existingVariantId = result.product?.variants?.nodes?.[0]?.id;
+            if (existingVariantId) {
+              const priceResult = await setDefaultVariantPrice(existing.id, existingVariantId, variantPrice, variantSku);
+              if (priceResult && priceResult.userErrors && priceResult.userErrors.length) {
+                console.warn(`  [price] Could not set price: ${priceResult.userErrors[0].message}`);
+              } else {
+                console.log(`  [price] Set to $${variantPrice}${variantSku ? ` SKU:${variantSku}` : ""}`);
+              }
+            }
+          }
+
           updated += 1;
           continue;
         }
@@ -329,12 +549,30 @@ async function pushProducts(products, dryRun) {
         continue;
       }
 
+      const createdProductId = result.product && result.product.id;
+      const defaultVariantId = result.product?.variants?.nodes?.[0]?.id;
+
       if (result.recoveredFromHandleConflict || result.recoveredFromRetryProbe) {
         console.log(`[${label}] Recovered idempotent create as existing product: ${result.product.title} (${result.product.handle})`);
         updated += 1;
       } else {
         console.log(`[${label}] Created: ${result.product.title} (${result.product.handle})`);
         created += 1;
+      }
+
+      // Set price on default variant
+      if (createdProductId && defaultVariantId && variantPrice) {
+        const priceResult = await setDefaultVariantPrice(createdProductId, defaultVariantId, variantPrice, variantSku);
+        if (priceResult && priceResult.userErrors && priceResult.userErrors.length) {
+          console.warn(`  [price] Could not set price: ${priceResult.userErrors[0].message}`);
+        } else {
+          console.log(`  [price] Set to $${variantPrice}${variantSku ? ` SKU:${variantSku}` : ""}`);
+        }
+      }
+
+      // Upload product images
+      if (createdProductId && orderedImages.length) {
+        await uploadProductImages(createdProductId, orderedImages, product.title);
       }
     } catch (error) {
       console.error(`[${label}] Error pushing ${product.title}: ${error.message}`);
