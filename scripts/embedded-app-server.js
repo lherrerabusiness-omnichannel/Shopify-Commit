@@ -1088,64 +1088,91 @@ function buildConsistencyReference(productType, liveCategoryContext, listingCons
 }
 
 function inferSignalsFromContext(shortDescription, imageNames, productType, extraContext = "") {
-  const joined = `${String(shortDescription || "")} ${Array.isArray(imageNames) ? imageNames.join(" ") : ""} ${String(productType || "")} ${String(extraContext || "")}`;
-  const normalized = normalizeComparable(joined);
-  const upper = String(joined || "").toUpperCase();
+  function inferFromText(text) {
+    const raw = String(text || "");
+    const normalized = normalizeComparable(raw);
+    const upper = raw.toUpperCase();
 
-  const voltageMatch = upper.match(/\b(12|24|110|120|220|230|240)\s?V\b/);
-  const wattageMatch = upper.match(/\b([1-9][0-9]{0,2})\s?W\b/);
-  const lumenMatch = upper.match(/\b([1-9][0-9]{1,4})\s?(LM|LUMEN)\b/);
-  const colorTempMatch = upper.match(/\b(2200|2400|2700|3000|3500|4000|5000|6500)\s?K\b/);
-  const ipMatch = upper.match(/\bIP\s?([0-9]{2})\b/);
-  const baseMatch = upper.match(/\b(MR16|MR11|MR8|PAR36|GU10|GU5\.3|E26|E27|G4)\b/);
-  const modelMatch = upper.match(/\b([A-Z0-9]{2,}(?:[-_/][A-Z0-9]{2,})+)\b/);
+    const voltageMatch = upper.match(/\b(12|24|110|120|220|230|240)\s?V\b/);
+    const wattageMatch = upper.match(/\b([1-9][0-9]{0,2})\s?W\b/);
+    const lumenMatch = upper.match(/\b([1-9][0-9]{1,4})\s?(LM|LUMEN)\b/);
+    const colorTempMatch = upper.match(/\b(2200|2400|2700|3000|3500|4000|5000|6500)\s?K\b/);
+    const ipMatch = upper.match(/\bIP\s?([0-9]{2})\b/);
+    const baseMatch = upper.match(/\b(MR16|MR11|MR8|PAR36|GU10|GU5\.3|E26|E27|G4)\b/);
+    const modelMatch = upper.match(/\b([A-Z0-9]{2,}(?:[-_/][A-Z0-9]{2,})+)\b/);
 
-  let material = "";
-  const materialCandidates = ["stainless steel", "cast brass", "solid brass", "brass", "bronze", "aluminum", "steel", "copper", "plastic"];
-  for (const item of materialCandidates) {
-    if (normalized.includes(item)) {
-      material = item;
-      break;
+    const blockedModelCodes = new Set(["AC/DC", "DC/AC", "AC-DC", "DC-AC", "AC_DC", "DC_AC"]);
+    let modelCode = modelMatch ? String(modelMatch[1]).trim() : "";
+    if (blockedModelCodes.has(modelCode)) modelCode = "";
+
+    let material = "";
+    const materialCandidates = ["stainless steel", "cast brass", "solid brass", "brass", "bronze", "aluminum", "steel", "copper", "plastic"];
+    for (const item of materialCandidates) {
+      if (normalized.includes(item)) {
+        material = item;
+        break;
+      }
     }
+
+    let finish = "";
+    const finishCandidates = ["aged brass", "antique brass", "matte black", "textured black", "bronze", "brass", "white", "stainless steel"];
+    for (const item of finishCandidates) {
+      if (normalized.includes(item)) {
+        finish = item;
+        break;
+      }
+    }
+
+    let installType = "";
+    if (normalized.includes("well light")) installType = "well light";
+    else if (normalized.includes("in ground") || normalized.includes("inground") || normalized.includes("recessed")) installType = "recessed in-ground";
+    else if (normalized.includes("uplight")) installType = "uplight";
+
+    const integratedLed = normalized.includes("integrated led") || (normalized.includes("integrated") && normalized.includes("led"));
+
+    const suggestedTags = [];
+    if (normalized.includes("outdoor") || normalized.includes("landscape")) suggestedTags.push("outdoor-lighting");
+    if (normalized.includes("well") && normalized.includes("light")) suggestedTags.push("well-light");
+    if (normalized.includes("low voltage") || normalized.includes("12v")) suggestedTags.push("12v");
+    if (material) suggestedTags.push(material);
+    if (integratedLed) suggestedTags.push("integrated-led");
+
+    return {
+      modelCode,
+      voltage: voltageMatch ? `${voltageMatch[1]}V` : "",
+      wattage: wattageMatch ? `${wattageMatch[1]}W` : "",
+      lumenOutput: lumenMatch ? String(lumenMatch[1]) : "",
+      colorTemp: colorTempMatch ? `${colorTempMatch[1]}K` : "",
+      ipRating: ipMatch ? `IP${ipMatch[1]}` : "",
+      baseType: baseMatch ? String(baseMatch[1]).replace("GU5.3", "GU5.3") : "",
+      material,
+      finish,
+      installType,
+      integratedLed: integratedLed ? "yes" : "",
+      dimmable: normalized.includes("non dim") ? "no" : (normalized.includes("dimm") ? "yes" : ""),
+      suggestedTags,
+    };
   }
 
-  let finish = "";
-  const finishCandidates = ["aged brass", "antique brass", "matte black", "textured black", "bronze", "brass", "white", "stainless steel"];
-  for (const item of finishCandidates) {
-    if (normalized.includes(item)) {
-      finish = item;
-      break;
-    }
-  }
-
-  let installType = "";
-  if (normalized.includes("well light")) installType = "well light";
-  else if (normalized.includes("in ground") || normalized.includes("inground") || normalized.includes("recessed")) installType = "recessed in-ground";
-  else if (normalized.includes("uplight")) installType = "uplight";
-
-  const integratedLed = normalized.includes("integrated led") || (normalized.includes("integrated") && normalized.includes("led"));
-
-  const suggestedTags = [];
-  if (normalized.includes("outdoor") || normalized.includes("landscape")) suggestedTags.push("outdoor-lighting");
-  if (normalized.includes("well") && normalized.includes("light")) suggestedTags.push("well-light");
-  if (normalized.includes("low voltage") || normalized.includes("12v")) suggestedTags.push("12v");
-  if (material) suggestedTags.push(material);
-  if (integratedLed) suggestedTags.push("integrated-led");
+  const fromUser = inferFromText(shortDescription);
+  const fromImages = inferFromText(Array.isArray(imageNames) ? imageNames.join(" ") : "");
+  const fromCatalog = inferFromText(`${String(productType || "")} ${String(extraContext || "")}`);
 
   return {
-    modelCode: modelMatch ? String(modelMatch[1]) : "",
-    voltage: voltageMatch ? `${voltageMatch[1]}V` : "",
-    wattage: wattageMatch ? `${wattageMatch[1]}W` : "",
-    lumenOutput: lumenMatch ? String(lumenMatch[1]) : "",
-    colorTemp: colorTempMatch ? `${colorTempMatch[1]}K` : "",
-    ipRating: ipMatch ? `IP${ipMatch[1]}` : "",
-    baseType: baseMatch ? String(baseMatch[1]).replace("GU5.3", "GU5.3") : "",
-    material,
-    finish,
-    installType,
-    integratedLed: integratedLed ? "yes" : "",
-    dimmable: normalized.includes("non dim") ? "no" : (normalized.includes("dimm") ? "yes" : ""),
-    suggestedTags,
+    // Prioritize explicit user input, then image/context inference.
+    modelCode: firstNonEmpty([fromUser.modelCode, fromImages.modelCode, fromCatalog.modelCode]),
+    voltage: firstNonEmpty([fromUser.voltage, fromImages.voltage, fromCatalog.voltage]),
+    wattage: firstNonEmpty([fromUser.wattage, fromImages.wattage, fromCatalog.wattage]),
+    lumenOutput: firstNonEmpty([fromUser.lumenOutput, fromImages.lumenOutput, fromCatalog.lumenOutput]),
+    colorTemp: firstNonEmpty([fromUser.colorTemp, fromImages.colorTemp, fromCatalog.colorTemp]),
+    ipRating: firstNonEmpty([fromUser.ipRating, fromImages.ipRating, fromCatalog.ipRating]),
+    baseType: firstNonEmpty([fromUser.baseType, fromImages.baseType, fromCatalog.baseType]),
+    material: firstNonEmpty([fromUser.material, fromImages.material, fromCatalog.material]),
+    finish: firstNonEmpty([fromUser.finish, fromImages.finish, fromCatalog.finish]),
+    installType: firstNonEmpty([fromUser.installType, fromImages.installType, fromCatalog.installType]),
+    integratedLed: firstNonEmpty([fromUser.integratedLed, fromImages.integratedLed, fromCatalog.integratedLed]),
+    dimmable: firstNonEmpty([fromUser.dimmable, fromImages.dimmable, fromCatalog.dimmable]),
+    suggestedTags: mergeTagList(fromUser.suggestedTags, fromImages.suggestedTags, fromCatalog.suggestedTags),
   };
 }
 
@@ -1209,6 +1236,8 @@ function buildStrongProductPrompt(options = {}) {
     "You are an expert Shopify catalog writer and data normalizer.",
     "Use the full context below to produce production-ready product details with minimal edits required.",
     "If a value is unknown, infer conservatively from provided evidence and avoid invented technical claims.",
+    "Treat the user short goal as the highest-priority source of truth for model/SKU-style codes and explicit specs.",
+    "Preserve user-provided codes exactly (e.g., WLC-HM-KIT-5WLED) and never replace them with generic terms like AC/DC.",
     "",
     "Context:",
     ...knownFacts.map((line) => `- ${line}`),
@@ -1737,6 +1766,7 @@ async function aiGenerateProductCopy(options = {}) {
   const systemPrompt = String(options.systemPrompt || "").trim();
   const shortDescription = String(options.shortDescription || "").trim();
   const row = options.row && typeof options.row === "object" ? options.row : {};
+  const preferredModelCode = String(options.preferredModelCode || row.sku || row.variant_sku || "").trim().toUpperCase();
   const overwriteFields = options.overwriteFields instanceof Set ? options.overwriteFields : new Set(Array.isArray(options.overwriteFields) ? options.overwriteFields : []);
   const lockedFields = options.lockedFields instanceof Set ? options.lockedFields : new Set(Array.isArray(options.lockedFields) ? options.lockedFields : []);
 
@@ -1747,6 +1777,7 @@ async function aiGenerateProductCopy(options = {}) {
     "Return ONLY valid JSON - no markdown, no explanation, no code fences.",
     "",
     shortDescription ? `User goal: "${shortDescription}"` : "",
+    preferredModelCode ? `Preferred model/SKU code: \"${preferredModelCode}\" (preserve exactly as written)` : "",
     "",
     "Return JSON with exactly these keys:",
     '  "title": concise keyword-rich product title (max 80 chars, title case, preserve product codes like MR16/GU10/E26/LED in ALL CAPS)',
@@ -1805,6 +1836,17 @@ async function aiGenerateProductCopy(options = {}) {
     if (aiFields.vendor) applyAiField("vendor", String(aiFields.vendor));
     if (aiFields.product_type) applyAiField("product_type", String(aiFields.product_type));
 
+    // Ensure preferred model/SKU code is visible in title and sku field.
+    if (preferredModelCode) {
+      if (shouldPopulateField(merged, "sku", overwriteFields, lockedFields)) {
+        merged.sku = firstNonEmpty([String(merged.sku || "").trim(), preferredModelCode]);
+      }
+      const currentTitle = String(merged.title || "").trim();
+      if (currentTitle && !currentTitle.toUpperCase().includes(preferredModelCode)) {
+        merged.title = normalizeTitleCase(`${preferredModelCode} ${currentTitle}`.trim()).slice(0, 120);
+      }
+    }
+
     // Merge AI tags with existing tags (deduplicated)
     if (Array.isArray(aiFields.tags) && aiFields.tags.length && !lockedFields.has("tags")) {
       const existingTags = String(merged.tags || "").split("|").map((t) => t.trim().toLowerCase()).filter(Boolean);
@@ -1858,17 +1900,28 @@ const KNOWN_PRODUCT_CODES = new Set([
 
 // Regex pattern for tokens that look like product codes: must contain at least one digit (e.g. MR16, GU10, E26, A19, IP67)
 const PRODUCT_CODE_RE = /^[A-Z][A-Z0-9]*[0-9][A-Z0-9]*(?:[/.][A-Z0-9]{1,6})?$/;
+// Pattern for structured SKU-like codes (e.g. WLC-HM-KIT-5WLED, AB12_XY-77)
+const STRUCTURED_CODE_RE = /^(?=.{3,32}$)(?=.*[0-9])[A-Z0-9]+(?:[-_/][A-Z0-9]+)+$/;
 
 function normalizeTitleCase(str) {
   if (!String(str || "").trim()) return str;
   return String(str).replace(/\S+/g, (word) => {
-    const upper = word.toUpperCase();
+    const parts = String(word).match(/^([^A-Za-z0-9]*)([A-Za-z0-9][A-Za-z0-9/._-]*)([^A-Za-z0-9]*)$/);
+    if (!parts) {
+      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+    }
+    const lead = parts[1] || "";
+    const core = parts[2] || "";
+    const tail = parts[3] || "";
+    const upper = core.toUpperCase();
     // Preserve known codes
-    if (KNOWN_PRODUCT_CODES.has(upper)) return upper;
+    if (KNOWN_PRODUCT_CODES.has(upper)) return `${lead}${upper}${tail}`;
     // Preserve anything that matches product code pattern when uppercased
-    if (PRODUCT_CODE_RE.test(upper) && word.length <= 8) return upper;
+    if (PRODUCT_CODE_RE.test(upper) && core.length <= 8) return `${lead}${upper}${tail}`;
+    // Preserve structured model/SKU codes that include separators and digits
+    if (STRUCTURED_CODE_RE.test(upper)) return `${lead}${upper}${tail}`;
     // Standard title-case: capitalize first letter, lowercase rest
-    return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+    return `${lead}${core.charAt(0).toUpperCase()}${core.slice(1).toLowerCase()}${tail}`;
   });
 }
 
@@ -4305,6 +4358,17 @@ function createServer() {
           systemPrompt: generationPrompt,
           shortDescription,
           row: autofilledRow,
+          preferredModelCode: inferred.modelCode,
+          overwriteFields: [
+            "title",
+            "description",
+            "body_html",
+            "seo_title",
+            "seo_description",
+            "tags",
+            "vendor",
+            "product_type",
+          ],
         });
         const aiEnrichedRow = aiCopy || autofilledRow;
         const aiGenerated = Boolean(aiCopy);
@@ -4489,6 +4553,7 @@ function createServer() {
           systemPrompt: generationPrompt,
           shortDescription,
           row: filled,
+          preferredModelCode: inferred.modelCode,
           overwriteFields,
           lockedFields,
         });
