@@ -1567,6 +1567,62 @@ function resolveAiCopyProvider() {
   return null;
 }
 
+function parseAiJsonObject(rawText) {
+  const raw = String(rawText || "").trim();
+  if (!raw) return null;
+
+  // Fast path: already valid JSON object string
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    // continue
+  }
+
+  // Remove common markdown code-fence wrappers
+  const unfenced = raw
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+
+  // Extract the broadest JSON object slice from first '{' to last '}'
+  const start = unfenced.indexOf("{");
+  const end = unfenced.lastIndexOf("}");
+  if (start === -1 || end === -1 || end <= start) return null;
+
+  const sliced = unfenced.slice(start, end + 1).trim();
+  try {
+    const parsed = JSON.parse(sliced);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function extractAiMessageText(payload) {
+  const content = payload?.choices?.[0]?.message?.content;
+  if (typeof content === "string") return content.trim();
+  if (Array.isArray(content)) {
+    const joined = content
+      .map((part) => {
+        if (typeof part === "string") return part;
+        if (part && typeof part === "object") {
+          if (typeof part.text === "string") return part.text;
+          if (typeof part.content === "string") return part.content;
+        }
+        return "";
+      })
+      .filter(Boolean)
+      .join("\n");
+    return joined.trim();
+  }
+  if (content && typeof content === "object") {
+    if (typeof content.text === "string") return content.text.trim();
+    if (typeof content.content === "string") return content.content.trim();
+  }
+  return "";
+}
+
 // ---------------------------------------------------------------------------
 // AI copy generation - calls the configured provider (Gemini or OpenAI) with
 // the full product context prompt and returns structured JSON fields to merge.
@@ -1610,7 +1666,7 @@ async function aiGenerateProductCopy(options = {}) {
         model: provider.model,
         response_format: { type: "json_object" },
         temperature: 0.3,
-        max_tokens: 900,
+        max_tokens: 1800,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userMessage },
@@ -1625,10 +1681,43 @@ async function aiGenerateProductCopy(options = {}) {
     }
 
     const payload = await response.json();
-    const raw = String(payload?.choices?.[0]?.message?.content || "").trim();
+    const raw = extractAiMessageText(payload);
     if (!raw) return null;
 
-    const aiFields = JSON.parse(raw);
+    let aiFields = parseAiJsonObject(raw);
+    if (!aiFields) {
+      // Retry once with a stricter, shorter instruction to recover from malformed JSON.
+      const retryResponse = await fetch(`${provider.baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${provider.apiKey}`,
+        },
+        body: JSON.stringify({
+          model: provider.model,
+          response_format: { type: "json_object" },
+          temperature: 0,
+          max_tokens: 1400,
+          messages: [
+            { role: "system", content: systemPrompt },
+            {
+              role: "user",
+              content: `${userMessage}\n\nIMPORTANT: return exactly one valid minified JSON object with double-quoted keys and values where applicable. No markdown or commentary.`,
+            },
+          ],
+        }),
+      });
+
+      if (retryResponse.ok) {
+        const retryPayload = await retryResponse.json();
+        const retryRaw = extractAiMessageText(retryPayload);
+        aiFields = parseAiJsonObject(retryRaw);
+      }
+    }
+    if (!aiFields) {
+      console.warn(`[ai-copy] ${provider.provider} returned non-parseable JSON payload.`);
+      return null;
+    }
 
     // Merge AI fields into the row, respecting locked fields and only
     // overwriting empty or explicitly-overwrite-requested fields.
