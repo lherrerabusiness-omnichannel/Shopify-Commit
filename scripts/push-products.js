@@ -104,28 +104,6 @@ function toProductInput(product) {
     metafields: Array.isArray(product.metafields) ? product.metafields : undefined,
   };
 
-  if (Array.isArray(product.options) && product.options.length) {
-    input.productOptions = product.options.map((name) => ({ name }));
-  }
-
-  if (Array.isArray(product.variants) && product.variants.length) {
-    input.variants = product.variants.map((v) => ({
-      price: v.price,
-      sku: v.sku,
-      optionValues: Array.isArray(v.optionValues)
-        ? v.optionValues.map((value) => ({ name: value }))
-        : undefined,
-      inventoryQuantities:
-        typeof v.inventoryQuantity === "number"
-          ? [
-              {
-                availableQuantity: v.inventoryQuantity,
-              },
-            ]
-          : undefined,
-    }));
-  }
-
   return input;
 }
 

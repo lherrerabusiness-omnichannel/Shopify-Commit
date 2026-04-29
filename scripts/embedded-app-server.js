@@ -534,6 +534,7 @@ async function runPushForFile(filePath, mode) {
 
   if (mode === "live") {
     args.push("--live");
+    args.push("--allow-unready-live");
   } else {
     args.push("--dry-run");
   }
