@@ -2653,6 +2653,7 @@ async function performWorkflowImport(shopContext, payload) {
 async function enrichImportedOutputWithAi(shopContext, options = {}) {
   const outputPath = String(options.outputPath || "").trim();
   const shortDescription = String(options.shortDescription || "").trim();
+  const provider = resolveAiCopyProvider();
 
   const summary = {
     attempted: 0,
@@ -2661,7 +2662,7 @@ async function enrichImportedOutputWithAi(shopContext, options = {}) {
     errors: 0,
   };
 
-  if (!OPENAI_API_KEY || !outputPath) {
+  if (!provider || !outputPath) {
     return summary;
   }
 
