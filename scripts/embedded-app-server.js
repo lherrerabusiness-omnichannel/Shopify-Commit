@@ -1198,6 +1198,20 @@ function mergeTagList(...groups) {
   return out;
 }
 
+function extractPriceFromUserInput(shortDescription = "") {
+  const raw = String(shortDescription || "");
+  const upper = raw.toUpperCase();
+  
+  // Try to extract price from patterns like: $99, $99.99, 99 dollars, price: $99, etc.
+  const match = raw.match(/[^\d]?\$(\d+(?:\.\d{2})?)\b|\b(\d+(?:\.\d{2})?)\s*(?:dollars?|usd|USD)/i);
+  if (match) {
+    const price = match[1] || match[2];
+    return String(price || "").trim();
+  }
+  
+  return "";
+}
+
 function extractPriorityFieldsFromUserInput(shortDescription = "", inferred = {}) {
   const raw = String(shortDescription || "");
   const upper = raw.toUpperCase();
@@ -1211,6 +1225,7 @@ function extractPriorityFieldsFromUserInput(shortDescription = "", inferred = {}
 
   const sku = pick(/\bSKU\s*[:#-]?\s*([A-Z0-9][A-Z0-9/_-]{2,})\b/);
   const modelCode = sku || pick(/\bMODEL\s*[:#-]?\s*([A-Z0-9][A-Z0-9/_-]{2,})\b/);
+  const price = extractPriceFromUserInput(shortDescription);
   const wattage = pick(/\b([1-9][0-9]{0,2})\s?(?:W|WATT|WATTS)\b/, (v) => `${v}W`) || String(inferred.wattage || "");
   const voltage = pick(/\b(12|24|110|120|220|230|240)\s?(?:V|VOLT|VOLTS)\b/, (v) => `${v}V`) || String(inferred.voltage || "");
   const colorTemp = pick(/\b(2200|2400|2700|3000|3500|4000|5000|6500)\s?K\b/, (v) => `${v}K`) || String(inferred.colorTemp || "");
@@ -1220,6 +1235,7 @@ function extractPriorityFieldsFromUserInput(shortDescription = "", inferred = {}
   return {
     sku,
     modelCode,
+    price,
     wattage,
     voltage,
     colorTemp,
@@ -1279,29 +1295,39 @@ function buildStrongProductPrompt(options = {}) {
     `Consistency tag options: ${Array.isArray(consistencyReference.fieldOptions && consistencyReference.fieldOptions.tags) ? consistencyReference.fieldOptions.tags.join(", ") : "(none)"}`,
     `Consistency price options: ${Array.isArray(consistencyReference.fieldOptions && consistencyReference.fieldOptions.price) ? consistencyReference.fieldOptions.price.join(", ") : "(none)"}`,
     `Vision hint: ${visionHint || "(none)"}`,
-    `User-priority extracted fields: sku=${userPriority.sku || ""}, model=${userPriority.modelCode || ""}, base_type=${userPriority.baseType || ""}, wattage=${userPriority.wattage || ""}, voltage=${userPriority.voltage || ""}, color_temp=${userPriority.colorTemp || ""}, ip_rating=${userPriority.ipRating || ""}`,
+    `User-provided SKU: ${userPriority.sku || "(none)"}`,
+    `User-provided price: ${userPriority.price || "(none)"}`,
+    `User-priority extracted fields: model=${userPriority.modelCode || ""}, base_type=${userPriority.baseType || ""}, wattage=${userPriority.wattage || ""}, voltage=${userPriority.voltage || ""}, color_temp=${userPriority.colorTemp || ""}, ip_rating=${userPriority.ipRating || ""}`,
     `Inferred specs from names/context: model=${inferred.modelCode || ""}, voltage=${inferred.voltage || ""}, wattage=${inferred.wattage || ""}, lumens=${inferred.lumenOutput || ""}, color_temp=${inferred.colorTemp || ""}, base_type=${inferred.baseType || ""}, install_type=${inferred.installType || ""}, material=${inferred.material || ""}, finish=${inferred.finish || ""}, ip_rating=${inferred.ipRating || ""}`,
   ];
 
   const requestedFields = Object.keys(row).length ? Object.keys(row).join(", ") : "title, handle, description, product_type, tags, vendor, price, base_type, wattage, voltage, lumen_output, color_temp";
 
   return [
-    "You are an expert Shopify catalog writer and data normalizer.",
-    "Use the full context below to produce production-ready product details with minimal edits required.",
-    "If a value is unknown, infer conservatively from provided evidence and avoid invented technical claims.",
-    "Treat the user short goal as the highest-priority source of truth for model/SKU-style codes and explicit specs.",
-    "Preserve user-provided codes exactly (e.g., WLC-HM-KIT-5WLED) and never replace them with generic terms like AC/DC.",
+    "You are an expert Shopify catalog writer and data normalizer optimizing for search visibility and conversion.",
+    "Use ALL provided context - brand profile, images, user input, catalog rules, and specifications - to create the best possible product listing.",
+    "Generate production-ready product details that require minimal edits. Every field should reflect comprehensive understanding of the product.",
+    "",
+    "For titles: Create keyword-rich, SEO-optimized titles that include brand, product type, and key specs (voltage, wattage, finish, material).",
+    "For descriptions: Write benefit-led descriptions that naturally incorporate specifications and brand authority.",
+    "For SKU and price: ALWAYS include these fields if provided by the user - they are critical for inventory and pricing accuracy.",
+    "",
+    "If a value is unknown, infer conservatively from provided evidence. Never invent technical specs.",
+    "Treat the user short goal and provided specs as the highest-priority source of truth.",
+    "Preserve user-provided codes exactly (e.g., WLC-HM-KIT-5WLED) - never replace with generic terms.",
     "",
     "Context:",
     ...knownFacts.map((line) => `- ${line}`),
     "",
     "Output requirements:",
-    "- Prioritize correctness over creativity.",
-    "- Keep title concise, keyword-rich, and shopper-readable.",
-    "- Make description clear, benefit-led, and technically grounded.",
-    "- Keep product_type aligned with store taxonomy hints.",
-    "- Fill tags to improve discoverability and collection routing.",
-    "- Respect brand tone and website context.",
+    "- Prioritize completeness and correctness over brevity.",
+    "- Title (max 120 chars): Include brand, model, product type, and top 2-3 specs for SEO.",
+    "- Description: Feature benefits, list all specs, mention brand heritage. Be specific, not generic.",
+    "- SKU: Must match user-provided value exactly. This is for inventory tracking.",
+    "- Price: Must include if provided by user. This is critical for sales.",
+    "- Tags: Use brand, specs (voltage/wattage), material, finish, and category tags for discoverability.",
+    "- Product type: Align with store taxonomy hints but use user goal as tie-breaker.",
+    "- Respect brand tone and website context in all copy.
     `- Return best values for: ${requestedFields}.`,
   ].join("\n");
 }
@@ -2045,24 +2071,65 @@ function applyAutofillToRow(row, options = {}) {
     brandProfile.brandName,
     brandProfile.brandVendor,
   ]);
-  const titleLead = firstNonEmpty([brandIdentity, inferred.modelCode]);
-  const compactTitle = [
-    titleLead,
-    inferred.modelCode && titleLead === brandIdentity ? inferred.modelCode : "",
-    effectiveProductType,
-    inferred.installType,
-    firstNonEmpty([inferred.finish, inferred.material]),
-    inferred.voltage,
-  ].filter(Boolean).join(" ").trim();
+  
+  // Build SEO-optimized title using all available assets
+  // Include: brand, model/SKU, product type, key specs (voltage, wattage, colorTemp, material, finish)
+  const titleParts = [];
+  
+  // Start with brand if available (important for brand authority and SEO)
+  if (brandIdentity) {
+    titleParts.push(brandIdentity);
+  }
+  
+  // Add model/SKU if available
+  if (inferred.modelCode) {
+    titleParts.push(inferred.modelCode);
+  } else if (userPriority.modelCode) {
+    titleParts.push(userPriority.modelCode);
+  }
+  
+  // Add product type (essential SEO keyword)
+  if (effectiveProductType) {
+    titleParts.push(effectiveProductType);
+  }
+  
+  // Add key specifications for SEO and specificity
+  const specParts = [];
+  if (inferred.voltage || userPriority.voltage) specParts.push(inferred.voltage || userPriority.voltage);
+  if (inferred.wattage || userPriority.wattage) specParts.push(inferred.wattage || userPriority.wattage);
+  if (inferred.colorTemp || userPriority.colorTemp) specParts.push(inferred.colorTemp || userPriority.colorTemp);
+  if (inferred.installType) specParts.push(inferred.installType);
+  if (inferred.material || userPriority.material) specParts.push(inferred.material || userPriority.material);
+  if (inferred.finish || userPriority.finish) specParts.push(inferred.finish || userPriority.finish);
+  if (inferred.baseType || userPriority.baseType) specParts.push(inferred.baseType || userPriority.baseType);
+  
+  if (specParts.length > 0) {
+    titleParts.push(specParts.join(" "));
+  }
+  
+  // Build the SEO-optimized title (max 120 chars for Shopify)
+  let seoTitle = titleParts.filter(Boolean).join(" ").trim().slice(0, 120);
+  
+  // Fallback to original logic if SEO title is too short
+  if (!seoTitle || seoTitle.length < 20) {
+    const compactTitle = [
+      brandIdentity,
+      inferred.modelCode || userPriority.modelCode,
+      effectiveProductType,
+      inferred.installType,
+      firstNonEmpty([inferred.finish, inferred.material]),
+      inferred.voltage || userPriority.voltage,
+    ].filter(Boolean).join(" ").trim();
+    
+    seoTitle = firstNonEmpty([
+      compactTitle,
+      shortDescription,
+      imageNames[0] ? String(imageNames[0]).replace(/\.[a-z0-9]+$/i, "") : "",
+      "New Product",
+    ]).slice(0, 120);
+  }
 
-  const title = firstNonEmpty([
-    compactTitle,
-    shortDescription,
-    imageNames[0] ? String(imageNames[0]).replace(/\.[a-z0-9]+$/i, "") : "",
-    "New Product",
-  ]).slice(0, 120);
-
-  const specParts = [
+  const specParts2 = [
     inferred.baseType ? `Base: ${inferred.baseType}` : "",
     inferred.voltage ? `Voltage: ${inferred.voltage}` : "",
     inferred.wattage ? `Wattage: ${inferred.wattage}` : "",
@@ -2083,7 +2150,7 @@ function applyAutofillToRow(row, options = {}) {
   const descriptionLead = shortDescription || (effectiveProductType ? `${effectiveProductType} by ${brandIdentity || "Ironsmith Lighting"}` : "Product");
   const descriptionBody = [
     detailParts.length ? detailParts.join(". ") + "." : "",
-    specParts.length ? `Specs: ${specParts.join("; ")}.` : "",
+    specParts2.length ? `Specs: ${specParts2.join("; ")}.` : "",
     brandIdentity ? `By ${brandIdentity}.` : "",
   ].filter(Boolean).join(" ").trim();
 
@@ -2095,13 +2162,13 @@ function applyAutofillToRow(row, options = {}) {
   ]);
 
   if (shouldPopulateField(next, "short_description", overwriteFields, lockedFields)) {
-    next.short_description = firstNonEmpty([shortDescription, visionHint, title]);
+    next.short_description = firstNonEmpty([shortDescription, visionHint, seoTitle]);
   }
   if (shouldPopulateField(next, "title", overwriteFields, lockedFields)) {
-    next.title = normalizeTitleCase(title);
+    next.title = normalizeTitleCase(seoTitle);
   }
   if (shouldPopulateField(next, "handle", overwriteFields, lockedFields)) {
-    next.handle = slugify(normalizeTitleCase(title));
+    next.handle = slugify(normalizeTitleCase(seoTitle));
   }
   if (shouldPopulateField(next, "description", overwriteFields, lockedFields)) {
     next.description = description;
@@ -2125,6 +2192,7 @@ function applyAutofillToRow(row, options = {}) {
   }
   if (shouldPopulateField(next, "price", overwriteFields, lockedFields)) {
     next.price = firstNonEmpty([
+      userPriority.price,
       templateDefaults && templateDefaults.defaultPrice,
       consistencyOptions.price && consistencyOptions.price[0],
     ]);
@@ -2136,10 +2204,10 @@ function applyAutofillToRow(row, options = {}) {
     next.status = "DRAFT";
   }
   if (shouldPopulateField(next, "product_title", overwriteFields, lockedFields)) {
-    next.product_title = title;
+    next.product_title = seoTitle;
   }
   if (shouldPopulateField(next, "title_seed", overwriteFields, lockedFields)) {
-    next.title_seed = compactTitle || title;
+    next.title_seed = seoTitle;
   }
   if (shouldPopulateField(next, "sku", overwriteFields, lockedFields)) {
     next.sku = inferred.modelCode;
@@ -4476,6 +4544,8 @@ function createServer() {
             "tags",
             "vendor",
             "product_type",
+            "price",
+            "sku",
           ],
         });
         const aiEnrichedRow = aiCopy || autofilledRow;
