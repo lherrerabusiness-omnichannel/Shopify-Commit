@@ -1398,8 +1398,35 @@
       });
     }
 
-    function renderProductTypeOptions() {
+    let latestTopSuggestedTypes = [];
+
+    function renderProductTypeOptions(topSuggestions = []) {
       quickProductTypeList.innerHTML = "";
+      latestTopSuggestedTypes = Array.isArray(topSuggestions) ? topSuggestions.slice(0, 3) : [];
+      
+      // Render top-3 suggestions first with visual separator
+      if (latestTopSuggestedTypes.length > 0) {
+        const suggestionLabel = document.createElement("option");
+        suggestionLabel.value = "";
+        suggestionLabel.disabled = true;
+        suggestionLabel.textContent = "▼ Top Suggestions ▼";
+        quickProductTypeList.appendChild(suggestionLabel);
+        
+        latestTopSuggestedTypes.forEach((productType) => {
+          const option = document.createElement("option");
+          option.value = productType;
+          option.textContent = productType;
+          quickProductTypeList.appendChild(option);
+        });
+
+        const divider = document.createElement("option");
+        divider.value = "";
+        divider.disabled = true;
+        divider.textContent = "▼ All Available Types ▼";
+        quickProductTypeList.appendChild(divider);
+      }
+      
+      // Render all available types
       availableProductTypes.forEach((productType) => {
         const option = document.createElement("option");
         option.value = productType;
@@ -1605,6 +1632,11 @@
         if (data.template.suggestedProductType) {
           latestSuggestedProductType = String(data.template.suggestedProductType || "").trim();
           quickProductTypeInput.value = String(customCsvRow.product_type || latestSuggestedProductType || "").trim();
+          // Update product type options with top suggestions
+          const topSuggestions = Array.isArray(data.template.topProductTypeSuggestions) 
+            ? data.template.topProductTypeSuggestions.slice(0, 3)
+            : [];
+          renderProductTypeOptions(topSuggestions);
         }
         renderCustomCsvFields();
         rememberAutoRefreshContext();
@@ -1713,8 +1745,12 @@
         const incomingTypes = Array.isArray(data.template.productTypes) ? data.template.productTypes : [];
         if (incomingTypes.length) {
           availableProductTypes = incomingTypes.map((x) => String(x || "").trim()).filter(Boolean);
-          renderProductTypeOptions();
         }
+        // Get top-3 suggestions for display
+        const topSuggestions = Array.isArray(data.template.topProductTypeSuggestions) 
+          ? data.template.topProductTypeSuggestions.slice(0, 3)
+          : [];
+        renderProductTypeOptions(topSuggestions);
         if (data.template.suggestedProductType) {
           quickProductTypeInput.value = String(data.template.suggestedProductType);
         }
@@ -1788,7 +1824,9 @@
             quickCsvBuilderStatus.textContent = `Auto-filled from available context (${reason || "auto"}). Review fields and generate when ready.`;
             return;
           }
-          const refreshed = await refreshReviewedFieldsFromContext(reason || "auto", { force: false });
+          // Force refresh on description edit, gentle refresh on other changes
+          const shouldForce = reason === "description-edit" || reason === "images-drop" || reason === "images-picker";
+          const refreshed = await refreshReviewedFieldsFromContext(reason || "auto", { force: shouldForce });
           if (refreshed) {
             quickCsvBuilderStatus.textContent = `Reviewed fields refreshed from available context (${reason || "auto"}).`;
           }
@@ -2987,7 +3025,8 @@
       if (!currentValue) {
         return;
       }
-      await refreshReviewedFieldsFromContext("description blur", { force: true });
+      // Force refresh on blur to ensure latest description is applied
+      await refreshReviewedFieldsFromContext("description-change", { force: true });
     });
 
     brandProfileImageUrlInput.addEventListener("input", () => {
@@ -3000,6 +3039,25 @@
 
     quickProductTypeInput.addEventListener("input", () => {
       setCategoryCheckStatus(quickProductTypeInput.value);
+      // Allow filtering the datalist
+      const filterValue = String(quickProductTypeInput.value || "").toLowerCase();
+      if (!filterValue) {
+        renderProductTypeOptions(latestTopSuggestedTypes);
+        return;
+      }
+      // Filter suggestions to matching items
+      const filtered = availableProductTypes
+        .filter((type) => String(type || "").toLowerCase().includes(filterValue))
+        .slice(0, 5);
+      const suggestions = latestTopSuggestedTypes
+        .filter((type) => String(type || "").toLowerCase().includes(filterValue))
+        .slice(0, 3);
+      renderProductTypeOptions([...new Set([...suggestions, ...filtered])]);
+    });
+
+    quickProductTypeInput.addEventListener("focus", () => {
+      // Re-render full options when input is focused
+      renderProductTypeOptions(latestTopSuggestedTypes);
     });
 
     quickNewProductTypeInput.addEventListener("input", () => {

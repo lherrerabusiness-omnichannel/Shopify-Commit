@@ -1,7 +1,7 @@
 {
   "store": "ironsmith-lighting.myshopify.com",
   "apiVersion": "2025-10",
-  "generatedAt": "2026-04-27T07:29:04.801Z",
+  "generatedAt": "2026-04-29T03:23:44.237Z",
   "productDefinitions": [
     {
       "id": "gid://shopify/MetafieldDefinition/1040810177",
@@ -273,17 +273,6 @@
           "value": "gid://shopify/MetaobjectDefinition/2788262081"
         }
       ]
-    },
-    {
-      "id": "gid://shopify/MetafieldDefinition/117075181761",
-      "name": "FAQs",
-      "namespace": "custom",
-      "key": "faqs",
-      "description": "Query questions",
-      "type": {
-        "name": "rich_text_field"
-      },
-      "validations": []
     },
     {
       "id": "gid://shopify/MetafieldDefinition/119947034817",
@@ -649,43 +638,10 @@
       ]
     },
     {
-      "id": "gid://shopify/MetafieldDefinition/140276728001",
-      "name": "Table Spec",
-      "namespace": "custom",
-      "key": "table_spec",
-      "description": "",
-      "type": {
-        "name": "json"
-      },
-      "validations": []
-    },
-    {
-      "id": "gid://shopify/MetafieldDefinition/140278563009",
-      "name": "Table Specification",
-      "namespace": "custom",
-      "key": "table_specification",
-      "description": "",
-      "type": {
-        "name": "rich_text_field"
-      },
-      "validations": []
-    },
-    {
       "id": "gid://shopify/MetafieldDefinition/141230604481",
       "name": "PDF",
       "namespace": "custom",
       "key": "pdf",
-      "description": "",
-      "type": {
-        "name": "file_reference"
-      },
-      "validations": []
-    },
-    {
-      "id": "gid://shopify/MetafieldDefinition/141356597441",
-      "name": "Product PDF",
-      "namespace": "custom",
-      "key": "product_pdf",
       "description": "",
       "type": {
         "name": "file_reference"
@@ -711,39 +667,6 @@
       "description": "",
       "type": {
         "name": "url"
-      },
-      "validations": []
-    },
-    {
-      "id": "gid://shopify/MetafieldDefinition/141564018881",
-      "name": "Wattage",
-      "namespace": "custom",
-      "key": "wattage",
-      "description": "",
-      "type": {
-        "name": "number_integer"
-      },
-      "validations": []
-    },
-    {
-      "id": "gid://shopify/MetafieldDefinition/141564051649",
-      "name": "Min_Voltage",
-      "namespace": "custom",
-      "key": "min_voltage",
-      "description": "",
-      "type": {
-        "name": "number_integer"
-      },
-      "validations": []
-    },
-    {
-      "id": "gid://shopify/MetafieldDefinition/141564084417",
-      "name": "Max_Voltage",
-      "namespace": "custom",
-      "key": "max_voltage",
-      "description": "",
-      "type": {
-        "name": "number_integer"
       },
       "validations": []
     },
@@ -938,6 +861,55 @@
           "value": "gid://shopify/MetaobjectDefinition/12702875841"
         }
       ]
+    },
+    {
+      "id": "gid://shopify/MetafieldDefinition/149669314753",
+      "name": "Ceiling light fixture style",
+      "namespace": "shopify",
+      "key": "ceiling-light-fixture-style",
+      "description": "Defines the primary structural style/configuration of the ceiling light fixture.",
+      "type": {
+        "name": "list.metaobject_reference"
+      },
+      "validations": [
+        {
+          "name": "metaobject_definition_id",
+          "value": "gid://shopify/MetaobjectDefinition/12767133889"
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/MetafieldDefinition/149842395329",
+      "name": "Wattage",
+      "namespace": "custom",
+      "key": "wattage",
+      "description": "",
+      "type": {
+        "name": "single_line_text_field"
+      },
+      "validations": []
+    },
+    {
+      "id": "gid://shopify/MetafieldDefinition/149842428097",
+      "name": "Min Voltage",
+      "namespace": "custom",
+      "key": "min_voltage",
+      "description": "",
+      "type": {
+        "name": "single_line_text_field"
+      },
+      "validations": []
+    },
+    {
+      "id": "gid://shopify/MetafieldDefinition/149842460865",
+      "name": "Max Voltage",
+      "namespace": "custom",
+      "key": "max_voltage",
+      "description": "",
+      "type": {
+        "name": "single_line_text_field"
+      },
+      "validations": []
     }
   ],
   "variantDefinitions": [

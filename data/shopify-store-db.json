@@ -1,10 +1,10 @@
 {
   "version": 1,
-  "generatedAt": "2026-04-27T07:29:06.305Z",
+  "generatedAt": "2026-04-29T03:23:46.148Z",
   "source": {
     "store": "ironsmith-lighting.myshopify.com",
     "apiVersion": "2025-10",
-    "schemaGeneratedAt": "2026-04-27T07:29:04.801Z",
+    "schemaGeneratedAt": "2026-04-29T03:23:44.237Z",
     "schemaPath": "data/shopify-metafields.product.json",
     "rulesPath": "config/store-rules.json"
   },
@@ -475,16 +475,6 @@
       "headerUnderscore": "shopify_light-color"
     },
     {
-      "name": "FAQs",
-      "namespace": "custom",
-      "key": "faqs",
-      "type": "rich_text_field",
-      "description": "Query questions",
-      "validations": [],
-      "headerDot": "custom.faqs",
-      "headerUnderscore": "custom_faqs"
-    },
-    {
       "name": "Socket type",
       "namespace": "shopify",
       "key": "socket-type",
@@ -825,26 +815,6 @@
       "headerUnderscore": "shopify_style"
     },
     {
-      "name": "Table Spec",
-      "namespace": "custom",
-      "key": "table_spec",
-      "type": "json",
-      "description": "",
-      "validations": [],
-      "headerDot": "custom.table_spec",
-      "headerUnderscore": "custom_table_spec"
-    },
-    {
-      "name": "Table Specification",
-      "namespace": "custom",
-      "key": "table_specification",
-      "type": "rich_text_field",
-      "description": "",
-      "validations": [],
-      "headerDot": "custom.table_specification",
-      "headerUnderscore": "custom_table_specification"
-    },
-    {
       "name": "PDF",
       "namespace": "custom",
       "key": "pdf",
@@ -853,16 +823,6 @@
       "validations": [],
       "headerDot": "custom.pdf",
       "headerUnderscore": "custom_pdf"
-    },
-    {
-      "name": "Product PDF",
-      "namespace": "custom",
-      "key": "product_pdf",
-      "type": "file_reference",
-      "description": "",
-      "validations": [],
-      "headerDot": "custom.product_pdf",
-      "headerUnderscore": "custom_product_pdf"
     },
     {
       "name": "Tech PDF",
@@ -883,36 +843,6 @@
       "validations": [],
       "headerDot": "custom.installation_video",
       "headerUnderscore": "custom_installation_video"
-    },
-    {
-      "name": "Wattage",
-      "namespace": "custom",
-      "key": "wattage",
-      "type": "number_integer",
-      "description": "",
-      "validations": [],
-      "headerDot": "custom.wattage",
-      "headerUnderscore": "custom_wattage"
-    },
-    {
-      "name": "Min_Voltage",
-      "namespace": "custom",
-      "key": "min_voltage",
-      "type": "number_integer",
-      "description": "",
-      "validations": [],
-      "headerDot": "custom.min_voltage",
-      "headerUnderscore": "custom_min_voltage"
-    },
-    {
-      "name": "Max_Voltage",
-      "namespace": "custom",
-      "key": "max_voltage",
-      "type": "number_integer",
-      "description": "",
-      "validations": [],
-      "headerDot": "custom.max_voltage",
-      "headerUnderscore": "custom_max_voltage"
     },
     {
       "name": "Finish",
@@ -1093,6 +1023,51 @@
       ],
       "headerDot": "shopify.battery-size",
       "headerUnderscore": "shopify_battery-size"
+    },
+    {
+      "name": "Ceiling light fixture style",
+      "namespace": "shopify",
+      "key": "ceiling-light-fixture-style",
+      "type": "list.metaobject_reference",
+      "description": "Defines the primary structural style/configuration of the ceiling light fixture.",
+      "validations": [
+        {
+          "name": "metaobject_definition_id",
+          "value": "gid://shopify/MetaobjectDefinition/12767133889"
+        }
+      ],
+      "headerDot": "shopify.ceiling-light-fixture-style",
+      "headerUnderscore": "shopify_ceiling-light-fixture-style"
+    },
+    {
+      "name": "Wattage",
+      "namespace": "custom",
+      "key": "wattage",
+      "type": "single_line_text_field",
+      "description": "",
+      "validations": [],
+      "headerDot": "custom.wattage",
+      "headerUnderscore": "custom_wattage"
+    },
+    {
+      "name": "Min Voltage",
+      "namespace": "custom",
+      "key": "min_voltage",
+      "type": "single_line_text_field",
+      "description": "",
+      "validations": [],
+      "headerDot": "custom.min_voltage",
+      "headerUnderscore": "custom_min_voltage"
+    },
+    {
+      "name": "Max Voltage",
+      "namespace": "custom",
+      "key": "max_voltage",
+      "type": "single_line_text_field",
+      "description": "",
+      "validations": [],
+      "headerDot": "custom.max_voltage",
+      "headerUnderscore": "custom_max_voltage"
     }
   ],
   "collectionHintsByProductType": {

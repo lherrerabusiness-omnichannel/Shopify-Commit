@@ -1243,11 +1243,25 @@ function buildStrongProductPrompt(options = {}) {
   const inferred = options.inferred || {};
   const visionHint = String(options.visionHint || "").trim();
   const userPriority = extractPriorityFieldsFromUserInput(shortDescription, inferred);
+  
+  // Calculate image weight influence: new images should only influence output proportionally
+  // If 1 new image + 3 existing = 25% influence on new, 75% on existing context
+  // If 3 new images + 9 existing = 25% influence on new, 75% on existing context
+  const priorImageCount = Number(options.priorImageCount || 0);
+  const currentNewImageCount = imageNames.length;
+  const totalImageCount = priorImageCount + currentNewImageCount;
+  let imageWeightFactor = 1.0; // default: all new = 100% weight
+  if (totalImageCount > 0 && currentNewImageCount > 0) {
+    imageWeightFactor = currentNewImageCount / totalImageCount;
+  }
+  const imageWeightPercentNew = Math.round(imageWeightFactor * 100);
+  const imageWeightPercentPrior = Math.round((1 - imageWeightFactor) * 100);
 
   const knownFacts = [
     `Product type candidate: ${suggestedProductType || "unknown"}`,
     `Short goal: ${shortDescription || "(none provided)"}`,
     `Images: ${imageNames.length ? imageNames.join(", ") : "(none)"}`,
+    `Image influence weight: ${imageWeightPercentNew}% from new images, ${imageWeightPercentPrior}% from prior context (total context: ${totalImageCount} images)`,
     `Brand display name: ${brandProfile.brandDisplayName || "(none)"}`,
     `Brand: ${brandProfile.brandName || "(none)"}`,
     `Vendor: ${brandProfile.brandVendor || "(none)"}`,
@@ -2295,6 +2309,7 @@ function suggestProductType(shopContext, shortDescription, imageNames) {
     return {
       productType: "",
       source: "none",
+      rankedSuggestions: [],
     };
   }
 
@@ -2304,6 +2319,7 @@ function suggestProductType(shopContext, shortDescription, imageNames) {
     return {
       productType: mapped || aliasTarget,
       source: "alias-match",
+      rankedSuggestions: [mapped || aliasTarget].filter(Boolean),
     };
   }
 
@@ -2314,6 +2330,7 @@ function suggestProductType(shopContext, shortDescription, imageNames) {
     return {
       productType: exactLearned.productType,
       source: "learned-exact",
+      rankedSuggestions: [exactLearned.productType],
     };
   }
 
@@ -2322,6 +2339,7 @@ function suggestProductType(shopContext, shortDescription, imageNames) {
     return {
       productType: productTypes[0],
       source: "fallback-first",
+      rankedSuggestions: productTypes.slice(0, 3),
     };
   }
 
@@ -2345,26 +2363,31 @@ function suggestProductType(shopContext, shortDescription, imageNames) {
     return {
       productType: learnedBest,
       source: "learned-similar",
+      rankedSuggestions: [learnedBest],
     };
   }
 
   let best = productTypes[0];
   let bestScore = -1;
-  for (const type of productTypes) {
-    const typeTokens = tokenizeForSuggestion(type);
-    let score = 0;
-    for (const token of typeTokens) {
-      if (tokens.has(token)) score += 3;
-      else if ([...tokens].some((t) => t.includes(token) || token.includes(t))) score += 1;
-    }
-    if (score > bestScore) {
-      bestScore = score;
-      best = type;
-    }
-  }
+  const rankedTypes = productTypes
+    .map((type) => {
+      const typeTokens = tokenizeForSuggestion(type);
+      let score = 0;
+      for (const token of typeTokens) {
+        if (tokens.has(token)) score += 3;
+        else if ([...tokens].some((t) => t.includes(token) || token.includes(t))) score += 1;
+      }
+      return { type, score };
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3)
+    .map((x) => x.type);
+
+  best = rankedTypes[0] || productTypes[0];
   return {
     productType: best,
     source: "store-match",
+    rankedSuggestions: rankedTypes,
   };
 }
 
@@ -4422,6 +4445,8 @@ function createServer() {
           categoryProfile
         );
         const inferred = inferSignalsFromContext(shortDescription, imageNames, effectiveType, visionHint);
+        // Calculate image weight influence: new images weighted by proportion of total
+        const priorImageCount = 0; // On initial generation, no prior context
         const generationPrompt = buildStrongProductPrompt({
           shortDescription,
           imageNames,
@@ -4434,6 +4459,7 @@ function createServer() {
           consistencyReference: effectiveConsistencyReference,
           inferred,
           visionHint,
+          priorImageCount,
         });
         // Run AI copy generation with the full context prompt
         const aiCopy = await aiGenerateProductCopy({
@@ -4460,6 +4486,9 @@ function createServer() {
           "",
         ].join("\n");
         const productTypes = readStoreProductTypes();
+        const topProductTypeSuggestions = Array.isArray(suggestion.rankedSuggestions) 
+          ? suggestion.rankedSuggestions.slice(0, 3)
+          : [];
         return sendJson(res, 200, {
           ok: true,
           template: {
@@ -4468,6 +4497,7 @@ function createServer() {
             csvContent,
             suggestedProductType: draft.suggestedProductType,
             suggestionSource: suggestion.source,
+            topProductTypeSuggestions,
             imageRoot,
             productTypes,
             metafieldSeed: buildMetafieldSeed(8),
@@ -4563,9 +4593,10 @@ function createServer() {
           : [];
         const imageRoot = String(body.imageRoot || "assets/products").trim() || "assets/products";
         const refreshSuggestedProductType = Boolean(body.refreshSuggestedProductType);
-        const suggestedProductType = refreshSuggestedProductType
-          ? suggestProductType(shopContext, shortDescription, imageNames).productType
-          : String(body.suggestedProductType || "").trim();
+        const suggestion = refreshSuggestedProductType
+          ? suggestProductType(shopContext, shortDescription, imageNames)
+          : { productType: String(body.suggestedProductType || "").trim(), source: "user-provided", rankedSuggestions: [] };
+        const suggestedProductType = suggestion.productType;
         const overwriteFields = Array.isArray(body.overwriteFields)
           ? body.overwriteFields.map((x) => String(x || "").trim()).filter(Boolean)
           : [];
@@ -4618,6 +4649,8 @@ function createServer() {
           categoryProfile
         );
         const inferred = inferSignalsFromContext(shortDescription, imageNames, effectiveType, visionHint);
+        // Calculate image weight influence: new images weighted by proportion of total
+        const priorImageCount = 0; // On autofill, estimate prior from context if available
         const generationPrompt = buildStrongProductPrompt({
           shortDescription,
           imageNames,
@@ -4630,6 +4663,7 @@ function createServer() {
           consistencyReference: effectiveConsistencyReference,
           inferred,
           visionHint,
+          priorImageCount,
         });
         const aiCopy = await aiGenerateProductCopy({
           systemPrompt: generationPrompt,
@@ -4646,6 +4680,9 @@ function createServer() {
           headers.map((header) => csvEscape(aiEnrichedRow[header] || "")).join(","),
           "",
         ].join("\n");
+        const topProductTypeSuggestions = Array.isArray(suggestion.rankedSuggestions) 
+          ? suggestion.rankedSuggestions.slice(0, 3)
+          : [];
         return sendJson(res, 200, {
           ok: true,
           template: {
@@ -4654,6 +4691,7 @@ function createServer() {
             csvContent,
             brandProfile,
             suggestedProductType,
+            topProductTypeSuggestions,
             aiGenerated,
             generationPrompt,
             inputGuidance: buildInputGuidance({
