@@ -80,9 +80,11 @@ const MAX_UPLOAD_IMAGES = 80;
 const MAX_UPLOAD_IMAGE_BYTES = 12 * 1024 * 1024;
 const CATEGORY_CONTEXT_CACHE_TTL_MS = 5 * 60 * 1000;
 const CATEGORY_CONTEXT_MAX_PRODUCTS = 12;
+const QUICK_FLOW_REQUIRED_HEADERS = ["price", "sku", "inventory"];
 
 const categoryContextCache = new Map();
 const visionContextCache = new Map();
+const visionSpecCache = new Map();
 
 function toPosixPath(value) {
   return String(value || "").replace(/\\/g, "/");
@@ -686,6 +688,20 @@ function slugify(value) {
     .slice(0, 80);
 }
 
+function ensureQuickFlowHeaders(headers) {
+  const base = Array.isArray(headers)
+    ? headers.map((x) => String(x || "").trim()).filter(Boolean)
+    : [];
+  const seen = new Set(base.map((x) => x.toLowerCase()));
+  for (const required of QUICK_FLOW_REQUIRED_HEADERS) {
+    const key = String(required || "").trim().toLowerCase();
+    if (!key || seen.has(key)) continue;
+    base.push(required);
+    seen.add(key);
+  }
+  return base;
+}
+
 function readIntakeTemplateHeaders() {
   if (!fs.existsSync(INTAKE_TEMPLATE_PATH)) {
     throw new Error("Intake template not found. Run bootstrap first to generate data/intake-single/products-intake.csv.");
@@ -702,7 +718,7 @@ function readIntakeTemplateHeaders() {
   if (!headers.length) {
     throw new Error("Intake template has no header row.");
   }
-  return headers;
+  return ensureQuickFlowHeaders(headers);
 }
 
 function readStoreProductTypes() {
@@ -1181,6 +1197,27 @@ function inferSignalsFromContext(shortDescription, imageNames, productType, extr
   };
 }
 
+function mergeInferredSignals(base = {}, overlay = {}) {
+  const primary = base && typeof base === "object" ? base : {};
+  const secondary = overlay && typeof overlay === "object" ? overlay : {};
+  return {
+    modelCode: firstNonEmpty([primary.modelCode, secondary.modelCode]),
+    voltage: firstNonEmpty([primary.voltage, secondary.voltage]),
+    wattage: firstNonEmpty([primary.wattage, secondary.wattage]),
+    lumenOutput: firstNonEmpty([primary.lumenOutput, secondary.lumenOutput]),
+    colorTemp: firstNonEmpty([primary.colorTemp, secondary.colorTemp]),
+    ipRating: firstNonEmpty([primary.ipRating, secondary.ipRating]),
+    baseType: firstNonEmpty([primary.baseType, secondary.baseType]),
+    material: firstNonEmpty([primary.material, secondary.material]),
+    finish: firstNonEmpty([primary.finish, secondary.finish]),
+    installType: firstNonEmpty([primary.installType, secondary.installType]),
+    integratedLed: firstNonEmpty([primary.integratedLed, secondary.integratedLed]),
+    dimmable: firstNonEmpty([primary.dimmable, secondary.dimmable]),
+    suggestedTags: mergeTagList(primary.suggestedTags, secondary.suggestedTags),
+    keyFeatures: mergeTagList(primary.keyFeatures, secondary.keyFeatures),
+  };
+}
+
 function mergeTagList(...groups) {
   const out = [];
   const seen = new Set();
@@ -1259,15 +1296,28 @@ function buildSearchOptimizationFields(options = {}) {
 
 function extractPriceFromUserInput(shortDescription = "") {
   const raw = String(shortDescription || "");
-  
-  // Try to extract price from patterns like: $99, $99.99, 99 dollars, price: $99, etc.
-  const match = raw.match(/[^\d]?\$(\d+(?:\.\d{2})?)\b|\b(\d+(?:\.\d{2})?)\s*(?:dollars?|usd|USD)/i);
-  if (match) {
-    const price = match[1] || match[2];
-    return String(price || "").trim();
-  }
-  
+
+  // Try explicit price patterns first to avoid picking up wattage/voltage numbers.
+  const dollar = raw.match(/(?:^|[^0-9])\$\s*([0-9]+(?:\.[0-9]{1,2})?)\b/i);
+  if (dollar) return normalizePriceString(dollar[1]);
+
+  const currencyWord = raw.match(/\b([0-9]+(?:\.[0-9]{1,2})?)\s*(?:usd|dollars?)\b/i);
+  if (currencyWord) return normalizePriceString(currencyWord[1]);
+
+  const labeled = raw.match(/\bprice\s*[:=-]?\s*\$?\s*([0-9]+(?:\.[0-9]{1,2})?)\b/i);
+  if (labeled) return normalizePriceString(labeled[1]);
+
   return "";
+}
+
+function normalizePriceString(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const match = raw.match(/(\d+(?:\.\d{1,2})?)/);
+  if (!match) return "";
+  const num = Number(match[1]);
+  if (!Number.isFinite(num) || num < 0) return "";
+  return num.toFixed(2);
 }
 
 function extractPriorityFieldsFromUserInput(shortDescription = "", inferred = {}) {
@@ -1316,6 +1366,8 @@ function buildStrongProductPrompt(options = {}) {
   const consistencyReference = options.consistencyReference || { source: "none", fieldOptions: {} };
   const inferred = options.inferred || {};
   const visionHint = String(options.visionHint || "").trim();
+  const imageSpecHints = options.imageSpecHints || {};
+  const categoryContext = options.categoryContext || { source: "none", sampleTitles: [], commonTags: [], medianPrice: "" };
   const userPriority = extractPriorityFieldsFromUserInput(shortDescription, inferred);
   
   // Calculate image weight influence: new images should only influence output proportionally
@@ -1353,6 +1405,12 @@ function buildStrongProductPrompt(options = {}) {
     `Consistency tag options: ${Array.isArray(consistencyReference.fieldOptions && consistencyReference.fieldOptions.tags) ? consistencyReference.fieldOptions.tags.join(", ") : "(none)"}`,
     `Consistency price options: ${Array.isArray(consistencyReference.fieldOptions && consistencyReference.fieldOptions.price) ? consistencyReference.fieldOptions.price.join(", ") : "(none)"}`,
     `Vision hint: ${visionHint || "(none)"}`,
+    `Image-extracted specs: material=${imageSpecHints.material || ""}, finish=${imageSpecHints.finish || ""}, voltage=${imageSpecHints.voltage || ""}, wattage=${imageSpecHints.wattage || ""}, lumens=${imageSpecHints.lumenOutput || ""}, color_temp=${imageSpecHints.colorTemp || ""}, ip_rating=${imageSpecHints.ipRating || ""}`,
+    `Image-extracted feature bullets: ${Array.isArray(imageSpecHints.keyFeatures) && imageSpecHints.keyFeatures.length ? imageSpecHints.keyFeatures.join(", ") : "(none)"}`,
+    `Similar listings context source: ${categoryContext.source || "none"}`,
+    `Similar listing title samples: ${Array.isArray(categoryContext.sampleTitles) && categoryContext.sampleTitles.length ? categoryContext.sampleTitles.join(" | ") : "(none)"}`,
+    `Similar listing common tags: ${Array.isArray(categoryContext.commonTags) && categoryContext.commonTags.length ? categoryContext.commonTags.join(", ") : "(none)"}`,
+    `Similar listing median price: ${categoryContext.medianPrice || "(none)"}`,
     `User-provided SKU: ${userPriority.sku || "(none)"}`,
     `User-provided price: ${userPriority.price || "(none)"}`,
     `User-priority extracted fields: model=${userPriority.modelCode || ""}, base_type=${userPriority.baseType || ""}, wattage=${userPriority.wattage || ""}, voltage=${userPriority.voltage || ""}, color_temp=${userPriority.colorTemp || ""}, ip_rating=${userPriority.ipRating || ""}`,
@@ -1682,6 +1740,149 @@ async function describeProductFromImagesWithVision(options = {}) {
   }
 }
 
+function normalizeExtractedImageSpecs(raw) {
+  const source = raw && typeof raw === "object" ? raw : {};
+  const keyFeatures = Array.isArray(source.key_features)
+    ? source.key_features
+    : (Array.isArray(source.keyFeatures) ? source.keyFeatures : splitListField(source.key_features || source.keyFeatures || ""));
+  return {
+    modelCode: String(source.model_code || source.modelCode || "").trim().toUpperCase(),
+    voltage: String(source.voltage || "").trim().toUpperCase(),
+    wattage: String(source.wattage || "").trim().toUpperCase(),
+    lumenOutput: String(source.lumen_output || source.lumenOutput || "").trim(),
+    colorTemp: String(source.color_temp || source.colorTemp || "").trim().toUpperCase(),
+    ipRating: String(source.ip_rating || source.ipRating || "").trim().toUpperCase(),
+    baseType: String(source.base_type || source.baseType || "").trim().toUpperCase(),
+    material: String(source.material || "").trim(),
+    finish: String(source.finish || "").trim(),
+    installType: String(source.install_type || source.installType || source.mounting_type || "").trim(),
+    suggestedTags: splitListField(source.suggested_tags || source.suggestedTags || ""),
+    keyFeatures: keyFeatures.map((x) => String(x || "").trim()).filter(Boolean).slice(0, 8),
+  };
+}
+
+function buildImageSpecContextLine(imageSpecHints = {}) {
+  const parts = [
+    imageSpecHints.modelCode,
+    imageSpecHints.voltage,
+    imageSpecHints.wattage,
+    imageSpecHints.lumenOutput ? `${imageSpecHints.lumenOutput}lm` : "",
+    imageSpecHints.colorTemp,
+    imageSpecHints.ipRating,
+    imageSpecHints.baseType,
+    imageSpecHints.material,
+    imageSpecHints.finish,
+    imageSpecHints.installType,
+    ...(Array.isArray(imageSpecHints.keyFeatures) ? imageSpecHints.keyFeatures : []),
+  ].filter(Boolean);
+  return parts.join(" ").trim();
+}
+
+async function extractStructuredSpecsFromImages(options = {}) {
+  const hasOpenAi = Boolean(OPENAI_API_KEY);
+  const hasGemini = Boolean(GEMINI_API_KEY);
+  if (!hasOpenAi && !hasGemini) {
+    return {};
+  }
+
+  const imageRoot = String(options.imageRoot || "").trim();
+  const imageNames = Array.isArray(options.imageNames)
+    ? options.imageNames.map((x) => String(x || "").trim()).filter(Boolean)
+    : [];
+  const suggestedProductType = String(options.suggestedProductType || "").trim();
+  const shortDescription = String(options.shortDescription || "").trim();
+  const localImages = resolveLocalUploadedImagePaths(imageRoot, imageNames, 4);
+  if (!localImages.length) return {};
+
+  const cacheKey = `${toPosixPath(imageRoot)}::${imageNames.join("|")}::${normalizeComparable(suggestedProductType)}::specs`;
+  if (visionSpecCache.has(cacheKey)) {
+    return visionSpecCache.get(cacheKey) || {};
+  }
+
+  const extractionPrompt = [
+    "Extract concrete ecommerce product specs from the images as JSON.",
+    "Use only visible evidence from the images. Do not hallucinate unknown specs.",
+    "Return one JSON object with keys:",
+    "model_code, voltage, wattage, lumen_output, color_temp, ip_rating, base_type, material, finish, install_type, key_features, suggested_tags",
+    "For key_features and suggested_tags return arrays.",
+    suggestedProductType ? `Product type candidate: ${suggestedProductType}.` : "",
+    shortDescription ? `User goal: ${shortDescription}.` : "",
+  ].filter(Boolean).join(" ");
+
+  try {
+    let raw = "";
+
+    if ((AI_PROVIDER === "gemini" || !OPENAI_API_KEY) && GEMINI_API_KEY) {
+      const parts = [{ text: extractionPrompt }];
+      for (const img of localImages) {
+        const bytes = fs.readFileSync(img.absPath);
+        parts.push({
+          inline_data: {
+            mime_type: imageMimeTypeFromFileName(img.name),
+            data: bytes.toString("base64"),
+          },
+        });
+      }
+
+      const geminiBody = {
+        contents: [{ role: "user", parts }],
+        generationConfig: {
+          temperature: 0,
+          maxOutputTokens: 1200,
+          responseMimeType: "application/json",
+        },
+      };
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_VISION_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(geminiBody),
+      });
+      if (!response.ok) return {};
+      const payload = await response.json();
+      raw = String(payload?.candidates?.[0]?.content?.parts?.[0]?.text || "").trim();
+    } else {
+      const userParts = [{ type: "text", text: extractionPrompt }];
+      for (const img of localImages) {
+        const bytes = fs.readFileSync(img.absPath);
+        userParts.push({
+          type: "image_url",
+          image_url: { url: `data:${imageMimeTypeFromFileName(img.name)};base64,${bytes.toString("base64")}` },
+        });
+      }
+
+      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${OPENAI_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: OPENAI_VISION_MODEL,
+          response_format: { type: "json_object" },
+          temperature: 0,
+          max_tokens: 1200,
+          messages: [
+            { role: "system", content: "You extract only visible product facts from images." },
+            { role: "user", content: userParts },
+          ],
+        }),
+      });
+      if (!response.ok) return {};
+      const payload = await response.json();
+      raw = extractAiMessageText(payload);
+    }
+
+    const parsed = parseAiJsonObject(raw);
+    if (!parsed) return {};
+    const normalized = normalizeExtractedImageSpecs(parsed);
+    visionSpecCache.set(cacheKey, normalized);
+    return normalized;
+  } catch {
+    return {};
+  }
+}
+
 async function getVisionContextHint(options = {}) {
   const imageRoot = String(options.imageRoot || "").trim();
   const imageNames = Array.isArray(options.imageNames)
@@ -1925,6 +2126,9 @@ async function aiGenerateProductCopy(options = {}) {
     '  "tags": array of 8-15 lowercase hyphenated Shopify tags for discoverability and collection routing',
     '  "vendor": brand/manufacturer name',
     '  "product_type": Shopify product type string matching store taxonomy',
+    '  "sku": product SKU/model code (preserve exact user-provided value when present)',
+    '  "price": decimal price string without currency symbol (example: "49.99")',
+    '  "key_features": array of 4-8 concise feature bullet strings',
   ].filter(Boolean).join("\n");
 
   try {
@@ -1989,6 +2193,30 @@ async function aiGenerateProductCopy(options = {}) {
     }
     if (aiFields.vendor) applyAiField("vendor", String(aiFields.vendor));
     if (aiFields.product_type) applyAiField("product_type", String(aiFields.product_type));
+    if (aiFields.sku) {
+      const skuValue = String(aiFields.sku || "").trim().toUpperCase();
+      applyAiField("sku", skuValue);
+      applyAiField("variant_sku", skuValue);
+    }
+    if (aiFields.price) {
+      const aiPrice = normalizePriceString(aiFields.price);
+      if (aiPrice) {
+        applyAiField("price", aiPrice);
+        applyAiField("variant_price", aiPrice);
+      }
+    }
+    if (Array.isArray(aiFields.key_features) && aiFields.key_features.length) {
+      const bullets = aiFields.key_features
+        .map((x) => String(x || "").trim())
+        .filter(Boolean)
+        .slice(0, 8);
+      if (bullets.length) {
+        const encoded = bullets.join("|");
+        ["key_features", "features", "highlights", "bullet_points", "key_benefits"].forEach((field) => {
+          applyAiField(field, encoded);
+        });
+      }
+    }
 
     // Ensure preferred model/SKU code is visible in title and sku field.
     if (preferredModelCode) {
@@ -2108,7 +2336,11 @@ function applyAutofillToRow(row, options = {}) {
   const overwriteFields = new Set(Array.isArray(options.overwriteFields) ? options.overwriteFields.map((x) => String(x || "").trim()).filter(Boolean) : []);
   const lockedFields = new Set(Array.isArray(options.lockedFields) ? options.lockedFields.map((x) => String(x || "").trim()).filter(Boolean) : []);
   const visionHint = String(options.visionHint || "").trim();
-  const inferred = inferSignalsFromContext(shortDescription, imageNames, suggestedProductType || next.product_type, visionHint);
+  const imageSpecHints = options.imageSpecHints && typeof options.imageSpecHints === "object" ? options.imageSpecHints : {};
+  const inferred = mergeInferredSignals(
+    inferSignalsFromContext(shortDescription, imageNames, suggestedProductType || next.product_type, `${visionHint} ${buildImageSpecContextLine(imageSpecHints)}`.trim()),
+    imageSpecHints
+  );
   const userPriority = extractPriorityFieldsFromUserInput(shortDescription, inferred);
   const explicitSku = extractExplicitSkuFromText(shortDescription);
 
@@ -2276,6 +2508,7 @@ function applyAutofillToRow(row, options = {}) {
   if (shouldPopulateField(next, "price", overwriteFields, lockedFields)) {
     next.price = firstNonEmpty([
       userPriority.price,
+      normalizePriceString(inferred.price),
       templateDefaults && templateDefaults.defaultPrice,
       consistencyOptions.price && consistencyOptions.price[0],
     ]);
@@ -2338,7 +2571,12 @@ function applyAutofillToRow(row, options = {}) {
   if (shouldPopulateField(next, "sku", overwriteFields, lockedFields)) {
     next.sku = inferred.modelCode;
   }
+  applyMappedUserValue(["price", "variant_price"], firstNonEmpty([userPriority.price, normalizePriceString(inferred.price)]));
   applyMappedUserValue(["sku", "variant_sku", "sku_values"], firstNonEmpty([explicitSku, userPriority.modelCode]));
+  applyMappedUserValue(
+    ["key_features", "features", "highlights", "bullet_points", "key_benefits"],
+    Array.isArray(inferred.keyFeatures) && inferred.keyFeatures.length ? inferred.keyFeatures.join("|") : ""
+  );
   if (explicitSku && !lockedFields.has("sku")) {
     const currentSku = String(next.sku || "").trim();
     if (!currentSku || overwriteFields.has("sku") || looksAutoGeneratedSku(currentSku) || currentSku.toUpperCase() !== explicitSku) {
@@ -4581,15 +4819,21 @@ function createServer() {
       try {
         const body = await readBody(req);
         const shopContext = getContext(body);
-        const headers = readIntakeTemplateHeaders();
+        const headers = ensureQuickFlowHeaders(readIntakeTemplateHeaders());
         const shortDescription = String(body.shortDescription || "").trim();
         const imageNames = Array.isArray(body.imageNames)
           ? body.imageNames.map((x) => String(x || "").trim()).filter(Boolean)
           : [];
         const imageRoot = String(body.imageRoot || "assets/products").trim() || "assets/products";
+        const userPriority = extractPriorityFieldsFromUserInput(shortDescription);
+        const aiLockedFields = [
+          ...(userPriority.price ? ["price", "variant_price"] : []),
+          ...((userPriority.sku || userPriority.modelCode) ? ["sku", "variant_sku"] : []),
+        ];
         const suggestion = suggestProductType(shopContext, shortDescription, imageNames);
         const suggestedProductType = suggestion.productType;
         const visionHint = await getVisionContextHint({ imageRoot, imageNames, suggestedProductType, shortDescription });
+        const imageSpecHints = await extractStructuredSpecsFromImages({ imageRoot, imageNames, suggestedProductType, shortDescription });
         const profile = readBrandProfile(shopContext.paths.brandProfilePath);
         const fallbackProfile = readDefaultBrandProfileFromCsv();
         const brandProfile = {
@@ -4626,6 +4870,7 @@ function createServer() {
           brandProfile,
           consistencyReference,
           visionHint,
+          imageSpecHints,
         });
         const storeDb = readStoreDb();
         const effectiveType = String(autofilledRow.product_type || suggestedProductType || "").trim();
@@ -4637,7 +4882,10 @@ function createServer() {
           consistencyState,
           categoryProfile
         );
-        const inferred = inferSignalsFromContext(shortDescription, imageNames, effectiveType, visionHint);
+        const inferred = mergeInferredSignals(
+          inferSignalsFromContext(shortDescription, imageNames, effectiveType, `${visionHint} ${buildImageSpecContextLine(imageSpecHints)}`.trim()),
+          imageSpecHints
+        );
         // Calculate image weight influence: new images weighted by proportion of total
         const priorImageCount = 0; // On initial generation, no prior context
         const generationPrompt = buildStrongProductPrompt({
@@ -4652,6 +4900,8 @@ function createServer() {
           consistencyReference: effectiveConsistencyReference,
           inferred,
           visionHint,
+          imageSpecHints,
+          categoryContext,
           priorImageCount,
         });
         // Run AI copy generation with the full context prompt
@@ -4660,6 +4910,7 @@ function createServer() {
           shortDescription,
           row: autofilledRow,
           preferredModelCode: inferred.modelCode,
+          lockedFields: aiLockedFields,
           overwriteFields: [
             "title",
             "description",
@@ -4774,10 +5025,14 @@ function createServer() {
       try {
         const body = await readBody(req);
         const shopContext = getContext(body);
-        const headers = Array.isArray(body.headers)
+        const headers = ensureQuickFlowHeaders(Array.isArray(body.headers)
           ? body.headers.map((x) => String(x || "").trim()).filter(Boolean)
-          : [];
-        const row = body.row && typeof body.row === "object" ? body.row : {};
+          : []);
+        const incomingRow = body.row && typeof body.row === "object" ? body.row : {};
+        const row = {};
+        for (const header of headers) {
+          row[header] = Object.prototype.hasOwnProperty.call(incomingRow, header) ? incomingRow[header] : "";
+        }
         if (!headers.length) {
           return sendJson(res, 400, { ok: false, error: "headers are required." });
         }
@@ -4788,6 +5043,7 @@ function createServer() {
           : [];
         const imageRoot = String(body.imageRoot || "assets/products").trim() || "assets/products";
         const refreshSuggestedProductType = Boolean(body.refreshSuggestedProductType);
+        const userPriority = extractPriorityFieldsFromUserInput(shortDescription);
         const suggestion = refreshSuggestedProductType
           ? suggestProductType(shopContext, shortDescription, imageNames)
           : { productType: String(body.suggestedProductType || "").trim(), source: "user-provided", rankedSuggestions: [] };
@@ -4798,7 +5054,13 @@ function createServer() {
         const lockedFields = Array.isArray(body.lockedFields)
           ? body.lockedFields.map((x) => String(x || "").trim()).filter(Boolean)
           : [];
+        const effectiveLockedFields = [...new Set([
+          ...lockedFields,
+          ...(userPriority.price ? ["price", "variant_price"] : []),
+          ...((userPriority.sku || userPriority.modelCode) ? ["sku", "variant_sku"] : []),
+        ])];
         const visionHint = await getVisionContextHint({ imageRoot, imageNames, suggestedProductType, shortDescription });
+        const imageSpecHints = await extractStructuredSpecsFromImages({ imageRoot, imageNames, suggestedProductType, shortDescription });
         const profile = readBrandProfile(shopContext.paths.brandProfilePath);
         const fallbackProfile = readDefaultBrandProfileFromCsv();
         const brandProfile = {
@@ -4830,8 +5092,9 @@ function createServer() {
           brandProfile,
           consistencyReference,
           overwriteFields,
-          lockedFields,
+          lockedFields: effectiveLockedFields,
           visionHint,
+          imageSpecHints,
         });
         const storeDb = readStoreDb();
         const effectiveType = String(filled.product_type || suggestedProductType || "").trim();
@@ -4843,7 +5106,10 @@ function createServer() {
           consistencyState,
           categoryProfile
         );
-        const inferred = inferSignalsFromContext(shortDescription, imageNames, effectiveType, visionHint);
+        const inferred = mergeInferredSignals(
+          inferSignalsFromContext(shortDescription, imageNames, effectiveType, `${visionHint} ${buildImageSpecContextLine(imageSpecHints)}`.trim()),
+          imageSpecHints
+        );
         // Calculate image weight influence: new images weighted by proportion of total
         const priorImageCount = 0; // On autofill, estimate prior from context if available
         const generationPrompt = buildStrongProductPrompt({
@@ -4858,6 +5124,8 @@ function createServer() {
           consistencyReference: effectiveConsistencyReference,
           inferred,
           visionHint,
+          imageSpecHints,
+          categoryContext,
           priorImageCount,
         });
         const aiCopy = await aiGenerateProductCopy({
@@ -4866,7 +5134,7 @@ function createServer() {
           row: filled,
           preferredModelCode: inferred.modelCode,
           overwriteFields,
-          lockedFields,
+          lockedFields: effectiveLockedFields,
         });
         const aiEnrichedRow = aiCopy || filled;
         const aiGenerated = Boolean(aiCopy);

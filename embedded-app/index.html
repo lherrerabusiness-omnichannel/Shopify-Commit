@@ -1626,6 +1626,9 @@
         if (!res.ok || !data.ok || !data.template) {
           throw new Error(data.error || "Autofill failed.");
         }
+        if (Array.isArray(data.template.headers) && data.template.headers.length) {
+          customCsvHeaders = data.template.headers.map((x) => String(x || "").trim()).filter(Boolean);
+        }
         customCsvRow = data.template.row && typeof data.template.row === "object" ? { ...data.template.row } : customCsvRow;
         customCsvContent = String(data.template.csvContent || buildCsvFromCustomState());
         setGeneratedPrompt(data.template.generationPrompt || "");
