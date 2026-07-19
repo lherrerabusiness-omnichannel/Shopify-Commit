@@ -1,6 +1,22 @@
 {
   "productTypeAliases": [
     {
+      "matchAny": [
+        "underwater",
+        "under water",
+        "pond light",
+        "pond",
+        "pool light",
+        "swimming pool",
+        "submersible",
+        "submergible",
+        "submerged",
+        "ip68",
+        "water feature"
+      ],
+      "target": "Underwater Light Fixture"
+    },
+    {
       "matchAny": ["well light", "in-ground", "landscape", "half moon"],
       "target": "Well Light Fixture"
     },
@@ -10,6 +26,22 @@
     }
   ],
   "categoryProfiles": {
+    "Underwater Light Fixture": {
+      "requiredFields": [
+        "sku",
+        "price",
+        "voltage",
+        "ip_rating",
+        "material",
+        "finish"
+      ],
+      "requiredTags": [
+        "underwater-light",
+        "pond-light",
+        "ip68"
+      ],
+      "recommendedImageConfidence": 60
+    },
     "Well Light Fixture": {
       "requiredFields": [
         "sku",

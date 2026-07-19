@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-04-29T03:23:46.148Z",
+  "generatedAt": "2026-05-24T20:39:58.340Z",
   "source": {
     "store": "ironsmith-lighting.myshopify.com",
     "apiVersion": "2025-10",
@@ -121,6 +121,22 @@
   "productTypeAliases": [
     {
       "matchAny": [
+        "underwater",
+        "under water",
+        "pond light",
+        "pond",
+        "pool light",
+        "swimming pool",
+        "submersible",
+        "submergible",
+        "submerged",
+        "ip68",
+        "water feature"
+      ],
+      "target": "Underwater Light Fixture"
+    },
+    {
+      "matchAny": [
         "well light",
         "in-ground",
         "landscape",
@@ -140,6 +156,22 @@
     }
   ],
   "categoryProfiles": {
+    "Underwater Light Fixture": {
+      "requiredFields": [
+        "sku",
+        "price",
+        "voltage",
+        "ip_rating",
+        "material",
+        "finish"
+      ],
+      "requiredTags": [
+        "underwater-light",
+        "pond-light",
+        "ip68"
+      ],
+      "recommendedImageConfidence": 60
+    },
     "Well Light Fixture": {
       "requiredFields": [
         "sku",

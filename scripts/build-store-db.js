@@ -78,7 +78,21 @@ function buildTypeCollectionHints(productTypes, smartCollections) {
   const byType = {};
 
   for (const type of types) {
-    byType[type] = {
+    const productTypeKey = normalizeComparable(type);
+    if (!productTypeKey) continue;
+
+    // Shopify stores can contain types which differ only by casing. JSON object
+    // keys are case-sensitive, but downstream configuration tools are not
+    // consistently so. Index hints by the normalized type to prevent duplicate
+    // and ambiguous keys such as "decorative lights" / "Decorative Lights".
+    if (byType[productTypeKey]) {
+      byType[productTypeKey].storeProductTypes.push(type);
+      continue;
+    }
+
+    byType[productTypeKey] = {
+      productTypeKey,
+      storeProductTypes: [type],
       suggestedTags: [],
       matchingCollections: [],
     };
@@ -100,11 +114,12 @@ function buildTypeCollectionHints(productTypes, smartCollections) {
 
     if (!typeRules.length) continue;
 
-    for (const productType of types) {
-      const matches = typeRules.some((rule) => typeRuleMatches(productType, rule.relation, rule.condition));
+    for (const bucket of Object.values(byType)) {
+      const matches = typeRules.some((rule) => bucket.storeProductTypes.some(
+        (productType) => typeRuleMatches(productType, rule.relation, rule.condition),
+      ));
       if (!matches) continue;
 
-      const bucket = byType[productType];
       bucket.matchingCollections.push({
         title: normalizeText(collection.title),
         handle: normalizeText(collection.handle),

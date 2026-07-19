@@ -14,7 +14,7 @@ const STORE = process.env.SHOPIFY_STORE_DOMAIN;
 const CLIENT_ID = process.env.SHOPIFY_CLIENT_ID;
 const CLIENT_SECRET = process.env.SHOPIFY_CLIENT_SECRET;
 const REDIRECT_URI = process.env.SHOPIFY_REDIRECT_URI || "http://127.0.0.1:3456/callback";
-const SCOPES = process.env.SHOPIFY_SCOPES || "read_products,write_products";
+const SCOPES = process.env.SHOPIFY_SCOPES || "read_products,write_products,read_inventory,write_inventory,read_locations";
 const AUTH_WAIT_TIMEOUT_MS = Number(process.env.SHOPIFY_AUTH_WAIT_TIMEOUT_MS || 10 * 60 * 1000);
 const FORCE_OAUTH = process.argv.includes("--force");
 

@@ -17,7 +17,7 @@ const PORT = Number(process.env.EMBEDDED_UI_PORT || 4320);
 const HOST = process.env.EMBEDDED_UI_HOST || "127.0.0.1";
 const CLIENT_ID = String(process.env.SHOPIFY_CLIENT_ID || "").trim();
 const CLIENT_SECRET = String(process.env.SHOPIFY_CLIENT_SECRET || "").trim();
-const DEFAULT_SCOPES = String(process.env.SHOPIFY_SCOPES || "read_products,write_products").trim();
+const DEFAULT_SCOPES = String(process.env.SHOPIFY_SCOPES || "read_products,write_products,read_inventory,write_inventory,read_locations").trim();
 const REDIRECT_URI = String(process.env.EMBEDDED_SHOPIFY_REDIRECT_URI || `http://${HOST}:${PORT}/auth/callback`).trim();
 const SHOPIFY_API_VERSION = String(process.env.SHOPIFY_API_VERSION || "2025-10").trim();
 const OPENAI_API_KEY = String(process.env.OPENAI_API_KEY || "").trim();
@@ -26,8 +26,16 @@ const OPENAI_COPY_MODEL = String(process.env.OPENAI_COPY_MODEL || "gpt-4o-mini")
 // AI provider routing: "openai" (default) or "gemini"
 const AI_PROVIDER = String(process.env.AI_PROVIDER || "openai").trim().toLowerCase();
 const GEMINI_API_KEY = String(process.env.GEMINI_API_KEY || "").trim();
-const GEMINI_COPY_MODEL = String(process.env.GEMINI_COPY_MODEL || "gemini-2.0-flash").trim();
-const GEMINI_VISION_MODEL = String(process.env.GEMINI_VISION_MODEL || "gemini-2.0-flash").trim();
+const GEMINI_COPY_MODEL = String(process.env.GEMINI_COPY_MODEL || "gemini-2.0-flash-lite").trim();
+const GEMINI_VISION_MODEL = String(process.env.GEMINI_VISION_MODEL || "gemini-2.0-flash-lite").trim();
+// Max output tokens for Gemini listing generation.
+// NOTE: For Gemini 2.5 series models, maxOutputTokens includes thinking tokens. We disable
+// thinking via thinkingConfig below, so the full budget goes to actual listing output.
+// Default is 8192 which comfortably fits a full JSON listing (title+description+all fields ~1500-3000 tokens).
+const GEMINI_MAX_OUTPUT_TOKENS = Math.min(Math.max(Number(process.env.GEMINI_MAX_OUTPUT_TOKENS || 8192), 1024), 32000);
+// Raw file size limit per image before upload. Without sharp installed, images over this size
+// are skipped to prevent sending oversized payloads. Install sharp to enable resize instead.
+const GEMINI_MAX_IMAGE_BYTES = 800 * 1024; // 800 KB
 const EMBEDDED_ALLOW_LIVE_PUSH = String(process.env.EMBEDDED_ALLOW_LIVE_PUSH || "false").toLowerCase() === "true";
 const PILOT_ROLLOUT_ENFORCE = String(process.env.PILOT_ROLLOUT_ENFORCE || "false").toLowerCase() === "true";
 const STORE_DB_PATH = path.resolve(process.cwd(), "data/shopify-store-db.json");
@@ -80,11 +88,92 @@ const MAX_UPLOAD_IMAGES = 80;
 const MAX_UPLOAD_IMAGE_BYTES = 12 * 1024 * 1024;
 const CATEGORY_CONTEXT_CACHE_TTL_MS = 5 * 60 * 1000;
 const CATEGORY_CONTEXT_MAX_PRODUCTS = 12;
-const QUICK_FLOW_REQUIRED_HEADERS = ["price", "sku", "inventory"];
+const QUICK_FLOW_REQUIRED_HEADERS = [
+  "price", "sku", "inventory", "product_kind",
+  // Spec fields that may be AI-extracted but are absent from some intake templates.
+  // Ensuring they are always present lets buildDynamicMetafields map them to metafields.
+  "material", "finish", "ip_rating", "install_type", "lumen_output",
+];
 
 const categoryContextCache = new Map();
 const visionContextCache = new Map();
 const visionSpecCache = new Map();
+// Session cache for unified Gemini responses. Key = SHA256(prompt fingerprint + image names + version).
+// Repeated requests with identical inputs return cached text without an API call.
+const geminiRequestCache = new Map();
+// Bump GEMINI_PROMPT_VERSION whenever the prompt structure changes to invalidate cached results.
+const GEMINI_PROMPT_VERSION = "v5";
+// Sentinel string returned by requestAiCopyRaw when Gemini responds with a quota/rate-limit error.
+// Allows callers to skip retry logic instead of burning another API call.
+const GEMINI_QUOTA_ERROR = "GEMINI_QUOTA_EXCEEDED";
+// In-flight counter + max concurrency cap. Prevents flooding the Gemini API when multiple
+// products are generated in parallel (e.g. bulk CSV import).
+let geminiInFlight = 0;
+const GEMINI_MAX_CONCURRENT = 3;
+
+// Optional: install sharp (npm install sharp) to enable automatic image resize before Gemini upload.
+// Without sharp, the GEMINI_MAX_IMAGE_BYTES guardrail is enforced instead.
+let sharp = null;
+try { sharp = require("sharp"); } catch { /* sharp not installed — size cap used instead */ }
+
+// Build a stable cache key from a fingerprint of the generation inputs + prompt version.
+function makeGeminiCacheKey(inputs) {
+  return crypto.createHash("sha256").update(JSON.stringify(inputs)).digest("hex").slice(0, 16) + "_" + GEMINI_PROMPT_VERSION;
+}
+
+// Estimate Gemini API cost in USD for logging visibility (free tier = $0, but tracked for awareness).
+// Rates: flash-lite $0.000075/1K input + $0.0003/1K output; flash $0.00015/1K + $0.0006/1K.
+function estimateGeminiCostUsd(model, inputTokens, outputTokens) {
+  const rates = {
+    "gemini-2.0-flash-lite": { input: 0.000075 / 1000, output: 0.0003 / 1000 },
+    "gemini-2.0-flash":      { input: 0.00015  / 1000, output: 0.0006  / 1000 },
+  };
+  const rate = rates[model] || rates["gemini-2.0-flash-lite"];
+  return ((inputTokens * rate.input) + (outputTokens * rate.output)).toFixed(6);
+}
+
+// Structured request log emitted after every Gemini API call.
+// Shows model, call count per action, token usage, image count, finish reason, cache hit, and cost.
+function logGeminiRequest({ requestId, productId, model, callNumber, inputTokens, outputTokens, imageCount, finishReason, cacheHit, estimatedCostUsd }) {
+  const parts = [
+    `[gemini-audit] reqId=${requestId}`,
+    productId ? `productId=${productId}` : null,
+    `model=${model}`,
+    `call#=${callNumber}`,
+    `in=${inputTokens ?? "?"}tok`,
+    `out=${outputTokens ?? "?"}tok`,
+    `images=${imageCount}`,
+    finishReason ? `finish=${finishReason}` : null,
+    cacheHit ? "CACHE_HIT" : null,
+    `~$${estimatedCostUsd}`,
+  ].filter(Boolean).join(" ");
+  console.log(parts);
+}
+
+// Compress or validate an image before sending to Gemini.
+// If sharp is installed: resizes to max 512px and re-encodes as JPEG 80% quality.
+// Without sharp: enforces GEMINI_MAX_IMAGE_BYTES raw file size cap — skips oversized images.
+async function compressImageForGemini(absPath, mimeType) {
+  const GEMINI_MAX_DIMENSION = 512;
+  const GEMINI_JPEG_QUALITY = 80;
+  try {
+    const rawBytes = fs.readFileSync(absPath);
+    if (sharp) {
+      const compressed = await sharp(rawBytes)
+        .resize(GEMINI_MAX_DIMENSION, GEMINI_MAX_DIMENSION, { fit: "inside", withoutEnlargement: true })
+        .jpeg({ quality: GEMINI_JPEG_QUALITY })
+        .toBuffer();
+      return { data: compressed, mimeType: "image/jpeg" };
+    }
+    if (rawBytes.length > GEMINI_MAX_IMAGE_BYTES) {
+      console.warn(`[gemini-image] ${path.basename(absPath)} is ${(rawBytes.length / 1024).toFixed(0)}KB — exceeds ${(GEMINI_MAX_IMAGE_BYTES / 1024).toFixed(0)}KB limit. Skipping to avoid token waste. Install sharp to enable auto-resize.`);
+      return null;
+    }
+    return { data: rawBytes, mimeType };
+  } catch {
+    return null;
+  }
+}
 
 function toPosixPath(value) {
   return String(value || "").replace(/\\/g, "/");
@@ -534,7 +623,7 @@ async function runImportWithInput(shopContext, inputPath, imageRoot, options = {
   };
 }
 
-async function runPushForFile(filePath, mode) {
+async function runPushForFile(filePath, mode, locationId, pushMode, targetProductId) {
   const args = [
     "scripts/push-products.js",
     "--file", filePath,
@@ -545,6 +634,18 @@ async function runPushForFile(filePath, mode) {
     args.push("--allow-unready-live");
   } else {
     args.push("--dry-run");
+  }
+
+  if (locationId) {
+    args.push("--location", String(locationId).trim());
+  }
+
+  if (pushMode) {
+    args.push("--push-mode", String(pushMode).trim());
+  }
+
+  if (targetProductId) {
+    args.push("--target-id", String(targetProductId).trim());
   }
 
   return runNodeScript(args);
@@ -820,13 +921,14 @@ function resolveAliasProductTypeFromStoreDb(shortDescription, imageNames, storeD
   const aliases = Array.isArray(storeDb && storeDb.productTypeAliases) ? storeDb.productTypeAliases : [];
   const haystack = normalizeComparable(`${String(shortDescription || "")} ${Array.isArray(imageNames) ? imageNames.join(" ") : ""}`);
   if (!haystack) return "";
+  const paddedHaystack = ` ${haystack} `;
   for (const alias of aliases) {
     const target = String(alias && alias.target || "").trim();
     const matchAny = Array.isArray(alias && alias.matchAny) ? alias.matchAny : [];
     if (!target || !matchAny.length) continue;
     const matched = matchAny.some((needle) => {
       const token = normalizeComparable(needle);
-      return token && haystack.includes(token);
+      return token && paddedHaystack.includes(` ${token} `);
     });
     if (matched) return target;
   }
@@ -1090,6 +1192,9 @@ function buildConsistencyReference(productType, liveCategoryContext, listingCons
     requiredFields,
     requiredTags,
     titleExamples,
+    styleGuidance: titleExamples.length
+      ? `PRIOR DRAFT TITLES — for store vocabulary reference ONLY. Do NOT copy their structure or word order; these may violate the rules above. Apply the TITLE formula strictly. Prior examples: ${titleExamples.slice(0, 4).join(" | ")}`
+      : "No existing title pattern found; apply the TITLE formula strictly and establish a clean brand style from the strongest product facts.",
     fieldOptions: {
       vendor: vendorOptions,
       tags: tagOptions,
@@ -1108,6 +1213,24 @@ function inferSignalsFromContext(shortDescription, imageNames, productType, extr
     const raw = String(text || "");
     const normalized = normalizeComparable(raw);
     const upper = raw.toUpperCase();
+    const hasTerm = (term) => {
+      const token = normalizeComparable(term);
+      return token && ` ${normalized} `.includes(` ${token} `);
+    };
+    const hasAnyTerm = (terms) => terms.some((term) => hasTerm(term));
+    const hasUnderwaterCue = hasAnyTerm([
+      "underwater",
+      "under water",
+      "pond light",
+      "pond",
+      "pool light",
+      "swimming pool",
+      "submersible",
+      "submergible",
+      "submerged",
+      "ip68",
+      "water feature",
+    ]);
 
     const explicitSkuMatch = upper.match(/\bSKU\s*[:#-]?\s*([A-Z0-9][A-Z0-9/_-]{2,})\b/);
     const voltageMatch = upper.match(/\b(12|24|110|120|220|230|240)\s?(?:V|VOLT|VOLTS)\b/);
@@ -1145,15 +1268,21 @@ function inferSignalsFromContext(shortDescription, imageNames, productType, extr
     }
 
     let installType = "";
-    if (normalized.includes("well light")) installType = "well light";
-    else if (normalized.includes("in ground") || normalized.includes("inground") || normalized.includes("recessed")) installType = "recessed in-ground";
-    else if (normalized.includes("uplight")) installType = "uplight";
+    if (hasUnderwaterCue) installType = "underwater";
+    else if (hasTerm("well light")) installType = "well light";
+    else if (hasTerm("in ground") || hasTerm("inground") || hasTerm("recessed")) installType = "recessed in-ground";
+    else if (hasTerm("uplight")) installType = "uplight";
 
     const integratedLed = normalized.includes("integrated led") || (normalized.includes("integrated") && normalized.includes("led"));
 
     const suggestedTags = [];
     if (normalized.includes("outdoor") || normalized.includes("landscape")) suggestedTags.push("outdoor-lighting");
-    if (normalized.includes("well") && normalized.includes("light")) suggestedTags.push("well-light");
+    if (hasUnderwaterCue) suggestedTags.push("underwater-light");
+    if (hasTerm("pond") || hasTerm("pond light")) suggestedTags.push("pond-light");
+    if (hasTerm("pool") || hasTerm("pool light") || hasTerm("swimming pool")) suggestedTags.push("pool-light");
+    if (hasTerm("submersible") || hasTerm("submergible") || hasTerm("submerged")) suggestedTags.push("submersible");
+    if (ipMatch) suggestedTags.push(`ip${ipMatch[1]}`);
+    if (hasTerm("well light")) suggestedTags.push("well-light");
     if (normalized.includes("low voltage") || normalized.includes("12v")) suggestedTags.push("12v");
     if (material) suggestedTags.push(material);
     if (integratedLed) suggestedTags.push("integrated-led");
@@ -1235,6 +1364,12 @@ function mergeTagList(...groups) {
   return out;
 }
 
+function normalizeProductKind(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (["digital", "digital_product", "download", "service"].includes(raw)) return "digital";
+  return "physical";
+}
+
 function normalizeSearchToken(value) {
   return String(value || "")
     .toLowerCase()
@@ -1250,10 +1385,25 @@ function buildSearchOptimizationFields(options = {}) {
   const brandIdentity = String(options.brandIdentity || "").trim();
   const inferred = options.inferred || {};
   const existingTags = Array.isArray(options.existingTags) ? options.existingTags : [];
+  const evidenceText = [
+    title,
+    shortDescription,
+    effectiveProductType,
+    brandIdentity,
+    // modelCode intentionally excluded — inventory codes shouldn't influence search tag evidence
+    inferred.installType,
+    inferred.voltage,
+    inferred.wattage,
+    inferred.colorTemp,
+    inferred.material,
+    inferred.finish,
+    inferred.baseType,
+  ].filter(Boolean).join(" ").toLowerCase();
 
   const primaryKeywords = [
     effectiveProductType,
-    inferred.modelCode,
+    // NOTE: modelCode is intentionally excluded — it's an inventory identifier, not a search term.
+    // inferred.modelCode would produce SKU-like tags (e.g. wlc-f-kit-5wled) that pollute collections.
     inferred.installType,
     inferred.voltage,
     inferred.wattage,
@@ -1281,7 +1431,13 @@ function buildSearchOptimizationFields(options = {}) {
     shortDescription.split(/\s+/).slice(0, 6).join(" "),
   ]
     .map(normalizeSearchToken)
-    .filter(Boolean);
+    .filter((tag) => {
+      if (!tag) return false;
+      if (/^(ai-generated-draft|import-csv|mapped-product-type|auto-collection-tags|needs-)/.test(tag)) return true;
+      const parts = tag.split("-").filter((part) => part.length > 2);
+      if (!parts.length) return true;
+      return parts.every((part) => evidenceText.includes(part));
+    });
 
   const dedupedTags = [...new Set(generatedSearchTags)].slice(0, 18);
   const keywordBlob = dedupedTags.slice(0, 10).join(", ");
@@ -1354,6 +1510,63 @@ function extractPriorityFieldsFromUserInput(shortDescription = "", inferred = {}
   };
 }
 
+function cleanRawIntakeForListing(value) {
+  let text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!text) return "";
+
+  text = text
+    .replace(/\b(?:can you|please|i need|we need|i want|we want|make|create|generate|add|build)\b[^.]{0,40}\b(?:listing|product listing|shopify listing)\b/ig, " ")
+    .replace(/\b(?:this listing is for|listing is for|this is for|product is for)\b/ig, " ")
+    .replace(/\b(?:use this|here is|the user said|customer said|seller said)\b[:\s-]*/ig, " ")
+    .replace(/\bSKU\s*[:#-]?\s*[A-Z0-9][A-Z0-9/_-]{2,}\b/ig, " ")
+    // Strip bare product codes / model numbers (e.g. WLC-L-KIT-5WLED-2) that contain
+    // uppercase-hyphenated segments with digits — not useful in a description summary.
+    .replace(/\b[A-Z]{2,5}(?:-[A-Z0-9]{1,8}){2,}\b/g, " ")
+    .replace(/\bprice\s*[:=-]?\s*\$?\s*[0-9]+(?:\.[0-9]{1,2})?\b/ig, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  text = text.replace(/^[,.;:\-\s]+|[,.;:\-\s]+$/g, "");
+  if (text.length > 220) text = text.slice(0, 220).replace(/\s+\S*$/, "").trim();
+  return text;
+}
+
+function buildCleanListingSummary(options = {}) {
+  const rawIntake = cleanRawIntakeForListing(options.rawIntake);
+  const inferred = options.inferred || {};
+  const productType = String(options.productType || "").trim();
+  const brandIdentity = String(options.brandIdentity || "").trim();
+  const visionHint = cleanRawIntakeForListing(options.visionHint || "");
+
+  const productLabel = firstNonEmpty([
+    productType,
+    inferred.installType,
+    "Lighting product",
+  ]);
+  const specParts = [
+    inferred.material,
+    inferred.finish,
+    inferred.baseType,
+    inferred.voltage,
+    inferred.wattage,
+    inferred.colorTemp,
+    inferred.lumenOutput ? `${inferred.lumenOutput} lm` : "",
+    inferred.ipRating,
+  ].filter(Boolean);
+  const evidenceParts = [
+    rawIntake,
+    visionHint,
+  ].filter(Boolean);
+  const evidence = evidenceParts.length ? evidenceParts[0] : "";
+  const specText = specParts.length ? ` Key details include ${specParts.join(", ")}.` : "";
+  const brandText = brandIdentity ? ` by ${brandIdentity}` : "";
+  const lead = evidence
+    ? `${productLabel}${brandText} for ${evidence.charAt(0).toLowerCase()}${evidence.slice(1)}.`
+    : `${productLabel}${brandText}.`;
+
+  return `${lead}${specText}`.replace(/\s+/g, " ").slice(0, 420).trim();
+}
+
 function buildStrongProductPrompt(options = {}) {
   const shortDescription = String(options.shortDescription || "").trim();
   const imageNames = Array.isArray(options.imageNames) ? options.imageNames.map((x) => String(x || "").trim()).filter(Boolean) : [];
@@ -1368,6 +1581,21 @@ function buildStrongProductPrompt(options = {}) {
   const visionHint = String(options.visionHint || "").trim();
   const imageSpecHints = options.imageSpecHints || {};
   const categoryContext = options.categoryContext || { source: "none", sampleTitles: [], commonTags: [], medianPrice: "" };
+  const storeProductTypes = Array.isArray(options.productTypes)
+    ? options.productTypes.map((x) => String(x || "").trim()).filter(Boolean)
+    : readStoreProductTypes();
+  const productTypeSuggestions = Array.isArray(options.productTypeSuggestions)
+    ? options.productTypeSuggestions.map((x) => String(x || "").trim()).filter(Boolean)
+    : [];
+  const relevantMetafields = Array.isArray(options.relevantMetafields)
+    ? options.relevantMetafields.map(normalizeMetafieldDefinition).filter(Boolean)
+    : selectRelevantMetafieldsForPrompt({
+      productType: suggestedProductType,
+      categoryProfile,
+      inferred,
+      shortDescription,
+      limit: 12,
+    });
   const userPriority = extractPriorityFieldsFromUserInput(shortDescription, inferred);
   
   // Calculate image weight influence: new images should only influence output proportionally
@@ -1385,6 +1613,8 @@ function buildStrongProductPrompt(options = {}) {
 
   const knownFacts = [
     `Product type candidate: ${suggestedProductType || "unknown"}`,
+    `Product type candidates from app logic: ${productTypeSuggestions.length ? productTypeSuggestions.join(" | ") : "(none)"}`,
+    `Existing Shopify product types available: ${storeProductTypes.length ? storeProductTypes.join(" | ") : "(none)"}`,
     `Short goal: ${shortDescription || "(none provided)"}`,
     `Images: ${imageNames.length ? imageNames.join(", ") : "(none)"}`,
     `Image influence weight: ${imageWeightPercentNew}% from new images, ${imageWeightPercentPrior}% from prior context (total context: ${totalImageCount} images)`,
@@ -1400,7 +1630,9 @@ function buildStrongProductPrompt(options = {}) {
     `Matching collections by catalog: ${Array.isArray(typeHints.matchingCollections) && typeHints.matchingCollections.length ? typeHints.matchingCollections.join(", ") : "(none)"}`,
     `Required fields for this category: ${Array.isArray(categoryProfile.requiredFields) && categoryProfile.requiredFields.length ? categoryProfile.requiredFields.join(", ") : "(none)"}`,
     `Required tags for this category: ${Array.isArray(categoryProfile.requiredTags) && categoryProfile.requiredTags.length ? categoryProfile.requiredTags.join(", ") : "(none)"}`,
+    `Relevant metafield targets for selected product type: ${relevantMetafields.length ? relevantMetafields.map(formatMetafieldPromptLine).join(" | ") : "(none)"}`,
     `Consistency source: ${consistencyReference.source || "none"}`,
+    `Consistency title/style guidance: ${consistencyReference.styleGuidance || "(none)"}`,
     `Consistency vendor options: ${Array.isArray(consistencyReference.fieldOptions && consistencyReference.fieldOptions.vendor) ? consistencyReference.fieldOptions.vendor.join(", ") : "(none)"}`,
     `Consistency tag options: ${Array.isArray(consistencyReference.fieldOptions && consistencyReference.fieldOptions.tags) ? consistencyReference.fieldOptions.tags.join(", ") : "(none)"}`,
     `Consistency price options: ${Array.isArray(consistencyReference.fieldOptions && consistencyReference.fieldOptions.price) ? consistencyReference.fieldOptions.price.join(", ") : "(none)"}`,
@@ -1417,34 +1649,121 @@ function buildStrongProductPrompt(options = {}) {
     `Inferred specs from names/context: model=${inferred.modelCode || ""}, voltage=${inferred.voltage || ""}, wattage=${inferred.wattage || ""}, lumens=${inferred.lumenOutput || ""}, color_temp=${inferred.colorTemp || ""}, base_type=${inferred.baseType || ""}, install_type=${inferred.installType || ""}, material=${inferred.material || ""}, finish=${inferred.finish || ""}, ip_rating=${inferred.ipRating || ""}`,
   ];
 
-  const requestedFields = Object.keys(row).length ? Object.keys(row).join(", ") : "title, handle, description, product_type, tags, vendor, price, base_type, wattage, voltage, lumen_output, color_temp";
+  // Strip signal lines that carry no value — prevents padding the prompt with empty "(none)" entries.
+  // A typical sparse product removes 8–12 empty lines, saving ~100–150 tokens per call.
+  const filteredFacts = knownFacts.filter(line => {
+    const afterColon = line.slice(line.indexOf(":") + 1).trim();
+    if (!afterColon || afterColon === "(none)" || afterColon === "(none provided)") return false;
+    // Structured spec lines like "material=, finish=, voltage=, ..." with no populated values
+    if (afterColon.includes("=") && !/=[A-Za-z0-9]/.test(afterColon)) return false;
+    return true;
+  });
 
   return [
-    "You are an expert Shopify catalog writer and data normalizer optimizing for search visibility and conversion.",
-    "Use ALL provided context - brand profile, images, user input, catalog rules, and specifications - to create the best possible product listing.",
-    "Generate production-ready product details that require minimal edits. Every field should reflect comprehensive understanding of the product.",
+    // ═══════════════════════════════════════════════════════════════════════════
+    // ROLE & MISSION
+    // ═══════════════════════════════════════════════════════════════════════════
+    // This brief is invisible to the merchant. It tells the AI exactly what this
+    // tool does, what the AI's role is, and the quality bar that must be met
+    // before any output is shown to the seller or pushed to Shopify.
+    "ROLE: You are the AI listing engine inside a professional Shopify product publishing app.",
+    "Sellers use this app to build high-quality Shopify listings faster. They provide a short description",
+    "and optional product images. You take that raw seller input and produce a complete, highly optimized",
+    "product listing — the kind that ranks in search, reads naturally to a buyer, and converts.",
     "",
-    "For titles: Create keyword-rich, SEO-optimized titles that include brand, product type, and key specs (voltage, wattage, finish, material).",
-    "For descriptions: Write benefit-led descriptions that naturally incorporate specifications and brand authority.",
-    "For SKU and price: ALWAYS include these fields if provided by the user - they are critical for inventory and pricing accuracy.",
+    "MISSION for each call:",
+    "  1. Understand the product from the merchant input and images provided.",
+    "  2. Identify the highest-value search terms buyers actually use for this product category.",
+    "  3. Write every field with two goals in equal weight:",
+    "       RANKING   — the listing must surface in relevant Shopify, Google Shopping, and marketplace searches.",
+    "       CONVERSION — a buyer who lands on the listing must immediately understand what it is,",
+    "                    why it's the right choice, and feel confident enough to buy.",
+    "  4. Be intentional. Every word earns its place. No filler. No generic placeholder sentences.",
+    "     Bad: 'This product is perfect for all your lighting needs.'",
+    "     Good: 'Designed for in-ground landscape installation, this 12V brass well light delivers warm 3000K",
+    "           illumination with a low-profile profile that disappears into driveways, garden beds, and pathways.'",
     "",
-    "If a value is unknown, infer conservatively from provided evidence. Never invent technical specs.",
-    "Treat the user short goal and provided specs as the highest-priority source of truth.",
-    "Preserve user-provided codes exactly (e.g., WLC-HM-KIT-5WLED) - never replace with generic terms.",
+    // ─── INPUT PRIORITY ───────────────────────────────────────────────────────
+    "INPUT PRIORITY (highest to lowest):",
+    "  1. MERCHANT INPUT — exact facts. Preserve SKU, price, specs, and product intent precisely. Elevate language only.",
+    "  2. PRODUCT IMAGES — visual ground truth for type, materials, form factor, finish, and use context.",
+    "  3. CATEGORY RESEARCH — draw on your knowledge of how this product category is sold and searched online.",
+    "     What keywords do buyers search? What titles outperform in this category? What tags drive collections?",
+    "  4. BRAND & CATALOG CONTEXT — align tone, taxonomy, and tags with the store conventions provided below.",
     "",
-    "Context:",
-    ...knownFacts.map((line) => `- ${line}`),
+    // ─── FIELD MAP ────────────────────────────────────────────────────────────
+    "FIELD MAP (JSON key → Shopify destination):",
+    "  title→product title | description_html→body HTML | seo_title→meta title | seo_description→meta desc",
+    "  meta_keywords→keyword index | tags→collection/search tags | key_features→feature bullets",
+    "  sku→inventory code (internal only) | price→variant price | vendor→brand | product_type→taxonomy",
+    "  metafields->Shopify product metafields. Use only exact namespace.key targets listed under Relevant metafield targets.",
+    "Each field has a distinct role. Never copy the same phrase across multiple fields.",
+    "For product_type, choose an exact value from Existing Shopify product types when a suitable match exists.",
+    "If no existing product type is a credible match, return product_type as an empty string and put the proposed new type in product_type_new_suggestion.",
+    "Never invent a product_type that is not already in the store list unless product_type is empty.",
     "",
-    "Output requirements:",
-    "- Prioritize completeness and correctness over brevity.",
-    "- Title (max 120 chars): Include brand, model, product type, and top 2-3 specs for SEO.",
-    "- Description: Feature benefits, list all specs, mention brand heritage. Be specific, not generic.",
-    "- SKU: Must match user-provided value exactly. This is for inventory tracking.",
-    "- Price: Must include if provided by user. This is critical for sales.",
-    "- Tags: Use brand, specs (voltage/wattage), material, finish, and category tags for discoverability.",
-    "- Product type: Align with store taxonomy hints but use user goal as tie-breaker.",
-    "- Respect brand tone and website context in all copy.",
-    `- Return best values for: ${requestedFields}.`,
+    // ═══════════════════════════════════════════════════════════════════════════
+    // LISTING QUALITY STANDARDS
+    // ═══════════════════════════════════════════════════════════════════════════
+    "LISTING QUALITY STANDARDS:",
+    "",
+    "  TITLE — the single most important SEO and conversion field:",
+    "    Formula: [Brand] [Product Type] – [Key Differentiator], [Primary Use Case] w/ [1-2 Core Specs]",
+    "    Example: 'Ironsmith Lighting In-Ground Well Light – Solid Brass, 12V Landscape Fixture w/ 5W G5.3 LED (3000K)'",
+    "    • Lead with the brand, then the product type buyers search for.",
+    "    • Use the differentiator (material, feature, or install type) as the hook after the dash.",
+    "    • End with the 1-2 specs that matter most to a buyer deciding between options.",
+    "    • Write for the buyer first — the title must read naturally out loud and make instant sense.",
+    "    • Max 120 characters. Title Case. Standard product codes (MR16, LED, GU10, PAR38, IP67) in ALL CAPS.",
+    "    • NEVER put the SKU or model number in the title — inventory codes belong only in the sku field.",
+    "    • NEVER dump a raw spec string ('12V 5W 3000K G5.3 brass') — translate specs into natural phrases.",
+    "    • NEVER repeat the product type word more than once in the title.",
+    "",
+    "  DESCRIPTION — where you sell the product to the buyer:",
+    "    Structure: Hook sentence → 1-2 context sentences → <ul> spec list → closing sentence (120-280 words total)",
+    "    • Hook: benefit- or outcome-led. Must NOT paraphrase the title. Make the buyer feel they found the right product.",
+    "    • Context: where it installs, what it replaces, who it's for, what makes it different from generic alternatives.",
+    "    • Spec list: 6-10 confirmed <li> items. State specs in component context ('solid brass housing', not just 'brass').",
+    "    • Each spec appears exactly once — never in both prose and the bullet list.",
+    "    • Closing: reinforce the outcome or application. Invite action.",
+    "    • Elevate the merchant's language — never copy raw notes verbatim. Keep every fact, improve the delivery.",
+    "",
+    "  SEO TITLE & META DESCRIPTION — for search engines and click-through rate:",
+    "    • seo_title and title must have different phrasing — they serve complementary search patterns.",
+    "    • seo_title: keyword-front-loaded, max 70 chars. Lead with the primary buyer search query.",
+    "    • seo_description: compelling, keyword-rich summary, max 155 chars, ends with CTA ('Shop now.' / 'Order today.').",
+    "",
+    "  TAGS — for Shopify collections, filters, and internal search:",
+    "    Think like a buyer building a search query. Cover: brand, product category, install method,",
+    "    voltage, wattage, color temperature, material, finish, IP/weather rating, and use case.",
+    "    All tags lowercase and hyphenated (e.g. 'in-ground', 'solid-brass', '3000k', 'landscape-lighting').",
+    "",
+    "  KEY FEATURES — the 4-8 bullet points buyers scan before reading:",
+    "    Each bullet = one specific, confirmed product attribute. Lead with the benefit, follow with the spec.",
+    "    Good: 'Solid brass housing for long-term corrosion resistance'",
+    "    Bad:  'Made of brass'",
+    "",
+    "  SKU / MODEL NUMBER:",
+    "    Internal inventory code. Place in the sku field only.",
+    "    One optional mention inside description_html is acceptable (e.g. 'Model WLC-HM-KIT-5WLED').",
+    "    Must NEVER appear in title, seo_title, or tags.",
+    "",
+    "  TECHNICAL ACCURACY:",
+    "    Only state specs confirmed by merchant input or visible in the images.",
+    "    If a spec is unknown, leave its field empty — do not guess or use placeholder language.",
+    "",
+    // ═══════════════════════════════════════════════════════════════════════════
+    // SELLER INPUTS & STORE CONTEXT
+    // ═══════════════════════════════════════════════════════════════════════════
+    "SELLER INPUTS & STORE CONTEXT:",
+    ...filteredFacts.map((line) => `  ${line}`),
+    "",
+    // ═══════════════════════════════════════════════════════════════════════════
+    // OUTPUT CONTRACT
+    // ═══════════════════════════════════════════════════════════════════════════
+    "OUTPUT FORMAT: Return exactly ONE valid JSON object. No markdown, no code fences, no prose outside the JSON.",
+    "Use an empty string '' for fields that are genuinely unknown — never invent values.",
+    "All required field names, formats, and character limits are defined in the TASK message.",
   ].join("\n");
 }
 
@@ -1457,6 +1776,108 @@ function readMetafieldDefinitions() {
   } catch {
     return [];
   }
+}
+
+function getMetafieldTypeName(definition) {
+  if (!definition || typeof definition !== "object") return "";
+  if (definition.type && typeof definition.type === "object") return String(definition.type.name || "").trim();
+  return String(definition.type || "").trim();
+}
+
+function isPromptSafeMetafieldDefinition(definition) {
+  const namespace = String(definition && definition.namespace || "").trim();
+  const typeName = getMetafieldTypeName(definition);
+  if (!namespace || namespace === "shopify" || namespace.startsWith("shopify--") || namespace === "reviews") return false;
+  if (typeName.includes("reference")) return false;
+  if (typeName === "rich_text_field") return false;
+  return true;
+}
+
+function normalizeMetafieldDefinition(definition) {
+  const source = definition && typeof definition === "object" ? definition : {};
+  const namespace = String(source.namespace || "").trim();
+  const key = String(source.key || "").trim();
+  if (!namespace || !key) return null;
+  return {
+    name: String(source.name || key).trim(),
+    namespace,
+    key,
+    type: getMetafieldTypeName(source) || "single_line_text_field",
+    description: String(source.description || "").trim(),
+    id: `${namespace}.${key}`,
+  };
+}
+
+function selectRelevantMetafieldsForPrompt(options = {}) {
+  const storeDb = options.storeDb && typeof options.storeDb === "object" ? options.storeDb : readStoreDb();
+  const definitions = Array.isArray(storeDb.metafields)
+    ? storeDb.metafields.map(normalizeMetafieldDefinition).filter(Boolean)
+    : readMetafieldDefinitions().map(normalizeMetafieldDefinition).filter(Boolean);
+  const safeDefinitions = definitions.filter(isPromptSafeMetafieldDefinition);
+  if (!safeDefinitions.length) return [];
+
+  const productType = String(options.productType || "").trim();
+  const categoryProfile = options.categoryProfile && typeof options.categoryProfile === "object" ? options.categoryProfile : {};
+  const inferred = options.inferred && typeof options.inferred === "object" ? options.inferred : {};
+  const shortDescription = String(options.shortDescription || "").trim();
+  const requiredFields = Array.isArray(categoryProfile.requiredFields)
+    ? categoryProfile.requiredFields.map((x) => String(x || "").trim()).filter(Boolean)
+    : [];
+  const requiredSet = new Set(requiredFields.map((x) => normalizeComparable(x)).filter(Boolean));
+  const contextTokens = new Set([
+    ...tokenizeForSuggestion(productType),
+    ...tokenizeForSuggestion(shortDescription),
+    ...tokenizeForSuggestion(Object.values(inferred).filter((value) => typeof value === "string").join(" ")),
+    ...requiredFields.flatMap((field) => tokenizeForSuggestion(field)),
+  ]);
+  const baseSpecKeys = new Set([
+    "material",
+    "finish",
+    "voltage",
+    "wattage",
+    "color_temp",
+    "lumen_output",
+    "ip_rating",
+    "base_type",
+    "dimmable",
+    "install_type",
+    "height",
+    "width",
+    "depth",
+    "weight",
+  ]);
+
+  return safeDefinitions
+    .map((definition) => {
+      const comparableKey = normalizeComparable(definition.key);
+      const comparableName = normalizeComparable(definition.name);
+      const searchable = `${definition.namespace} ${definition.key} ${definition.name} ${definition.description}`;
+      const defTokens = tokenizeForSuggestion(searchable);
+      let score = 0;
+
+      if (requiredSet.has(comparableKey) || requiredSet.has(comparableName)) score += 100;
+      for (const required of requiredSet) {
+        if (!required) continue;
+        if (comparableKey.includes(required) || comparableName.includes(required) || required.includes(comparableKey)) score += 60;
+      }
+      if (baseSpecKeys.has(comparableKey)) score += 45;
+      for (const token of defTokens) {
+        if (contextTokens.has(token)) score += 6;
+      }
+      if (definition.namespace === "custom") score += 8;
+      if (/google|shopping|seo|search/i.test(`${definition.namespace}.${definition.key} ${definition.name}`)) score += 6;
+
+      return { definition, score };
+    })
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score || a.definition.id.localeCompare(b.definition.id))
+    .slice(0, Math.max(1, Math.min(Number(options.limit || 12), 20)))
+    .map((item) => item.definition);
+}
+
+function formatMetafieldPromptLine(definition) {
+  const desc = definition.description ? ` - ${definition.description.slice(0, 90)}` : "";
+  return `${definition.id} (${definition.type})${desc}`;
 }
 
 function defaultValueForMetafieldType(typeName) {
@@ -1477,8 +1898,12 @@ function createEmptyBrandProfile() {
     websiteUrl: "",
     profileImageUrl: "",
     preset: "",
+    productKind: "physical",
     tone: "",
     notes: "",
+    defaultLocationId: "",
+    defaultLocationName: "",
+    defaultPushMode: "update",
   };
 }
 
@@ -1503,8 +1928,12 @@ function readBrandProfile(filePath) {
       websiteUrl: normalizeWebsiteUrl(value.websiteUrl || ""),
       profileImageUrl: String(value.profileImageUrl || "").trim(),
       preset: String(value.preset || "").trim(),
+      productKind: normalizeProductKind(value.productKind || value.product_kind || ""),
       tone: String(value.tone || "").trim(),
       notes: String(value.notes || "").trim(),
+      defaultLocationId: String(value.defaultLocationId || "").trim(),
+      defaultLocationName: String(value.defaultLocationName || "").trim(),
+      defaultPushMode: String(value.defaultPushMode || "update").trim(),
     };
   } catch {
     return createEmptyBrandProfile();
@@ -1546,6 +1975,7 @@ function readDefaultBrandProfileFromCsv() {
       websiteUrl: normalizeWebsiteUrl(websiteUrl || ""),
       profileImageUrl: String(row.profile_image_url || row.brand_image_url || "").trim(),
       preset: String(row.profile_name || "").trim(),
+      productKind: normalizeProductKind(row.product_kind || row.product_profile || ""),
       tone: "",
       notes: String(row.default_description || "").trim(),
     };
@@ -1993,42 +2423,119 @@ function extractAiMessageText(payload) {
 
 async function requestAiCopyRaw(provider, systemPrompt, userMessage, options = {}) {
   const temperature = Number.isFinite(options.temperature) ? options.temperature : 0.3;
-  const maxTokens = Number.isFinite(options.maxTokens) ? options.maxTokens : 1800;
+  const maxTokens = Number.isFinite(options.maxTokens) ? options.maxTokens : 3200;
 
   if (provider.provider === "gemini") {
-    // Gemini's JSON mode with responseMimeType guarantees structured output
+    const requestId = options.requestId || crypto.randomUUID();
+    const productId = String(options.productId || "");
+    const callNumber = Number(options.callNumber || 1);
+    const incomingImages = Array.isArray(options.images) ? options.images.slice() : [];
+    const tokenAccumulator = options.tokenAccumulator || null;
+
+    // Cache check — return stored result if this exact input was already processed this session.
+    const cacheKey = options.cacheKey || null;
+    if (cacheKey && geminiRequestCache.has(cacheKey)) {
+      if (tokenAccumulator) tokenAccumulator.cacheHit = true;
+      logGeminiRequest({ requestId, productId, model: provider.model, callNumber, inputTokens: 0, outputTokens: 0, imageCount: 0, cacheHit: true, estimatedCostUsd: "0.000000" });
+      return geminiRequestCache.get(cacheKey);
+    }
+
+    // Guardrail: reject prompts that are unreasonably large before sending.
+    const totalChars = systemPrompt.length + userMessage.length;
+    if (totalChars > 40000) {
+      console.warn(`[gemini-guardrail] prompt too large (${totalChars} chars) — request blocked`);
+      return "";
+    }
+
+    // Guardrail: cap images at 3 (caller should already have sent 1 by default).
+    if (incomingImages.length > 3) {
+      console.warn(`[gemini-guardrail] ${incomingImages.length} images supplied — capping at 3`);
+      incomingImages.splice(3);
+    }
+
+    // Concurrency guard: prevent flooding the API during parallel bulk operations.
+    if (geminiInFlight >= GEMINI_MAX_CONCURRENT) {
+      console.warn(`[gemini-throttle] ${geminiInFlight} requests in flight — max ${GEMINI_MAX_CONCURRENT} reached. Blocking.`);
+      return "";
+    }
+
+    // Build request parts: user message text first, then optional image inline data.
+    const userParts = [{ text: userMessage }];
+    for (const img of incomingImages) {
+      if (img && img.mimeType && img.base64) {
+        userParts.push({ inline_data: { mime_type: img.mimeType, data: img.base64 } });
+      }
+    }
+
     const geminiBody = {
-      contents: [{ role: "user", parts: [{ text: userMessage }] }],
+      contents: [{ role: "user", parts: userParts }],
       systemInstruction: { parts: [{ text: systemPrompt }] },
       generationConfig: {
         temperature,
-        maxOutputTokens: Math.max(maxTokens, 4096),
+        maxOutputTokens: GEMINI_MAX_OUTPUT_TOKENS,
         responseMimeType: "application/json",
+        // Disable thinking for Gemini 2.5 series: thinking tokens count toward maxOutputTokens,
+        // so with thinking enabled the model burns its token budget before producing output.
+        thinkingConfig: { thinkingBudget: 0 },
       },
+      // Explicitly disable all tool integrations for the basic listing generation flow.
+      // No search grounding, code execution, function calling, URL context, or file search.
+      tools: [],
     };
+
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${provider.model}:generateContent?key=${provider.apiKey}`;
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(geminiBody),
-    });
-    if (!response.ok) {
-      const errText = await response.text().catch(() => "");
-      console.warn(`[ai-copy] ${provider.provider} error ${response.status}: ${errText.slice(0, 200)}`);
-      return "";
+    geminiInFlight++;
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(geminiBody),
+      });
+
+      if (!response.ok) {
+        const errText = await response.text().catch(() => "");
+        const errSnippet = errText.slice(0, 300);
+        const isQuotaError = response.status === 429 || errSnippet.includes("RESOURCE_EXHAUSTED");
+        if (isQuotaError) {
+          console.warn(`[gemini-quota] rate limit / quota exceeded (HTTP ${response.status}) — generation blocked`);
+          return GEMINI_QUOTA_ERROR;
+        }
+        console.warn(`[ai-copy] gemini error ${response.status}: ${errSnippet}`);
+        return "";
+      }
+
+      const payload = await response.json();
+      const candidate = payload?.candidates?.[0];
+      const text = String(candidate?.content?.parts?.[0]?.text || "").trim();
+      const finishReason = candidate?.finishReason || "";
+      const usage = payload?.usageMetadata || {};
+      const inputTokens = usage.promptTokenCount || 0;
+      const outputTokens = usage.candidatesTokenCount || 0;
+      const estimatedCostUsd = estimateGeminiCostUsd(provider.model, inputTokens, outputTokens);
+
+      logGeminiRequest({ requestId, productId, model: provider.model, callNumber, inputTokens, outputTokens, imageCount: incomingImages.length, finishReason, cacheHit: false, estimatedCostUsd });
+
+      // Accumulate token counts across multiple calls within one action (e.g. primary + retry).
+      if (tokenAccumulator) {
+        tokenAccumulator.inputTokens += inputTokens;
+        tokenAccumulator.outputTokens += outputTokens;
+        tokenAccumulator.calls++;
+      }
+
+      if (!text) {
+        console.warn(`[ai-copy] gemini empty response, finishReason=${finishReason}`);
+        return "";
+      }
+      if (finishReason && finishReason !== "STOP") {
+        console.warn(`[ai-copy] gemini finishReason=${finishReason} (output may be truncated)`);
+      }
+
+      // Store successful response in session cache.
+      if (cacheKey) geminiRequestCache.set(cacheKey, text);
+      return text;
+    } finally {
+      geminiInFlight--;
     }
-    const payload = await response.json();
-    const text = String(payload?.candidates?.[0]?.content?.parts?.[0]?.text || "").trim();
-    if (!text) {
-      const finishReason = payload?.candidates?.[0]?.finishReason;
-      console.warn(`[ai-copy] gemini empty response, finishReason=${finishReason}`);
-    } else {
-      const fr = payload?.candidates?.[0]?.finishReason;
-      if (fr && fr !== "STOP") console.warn(`[ai-copy] gemini finishReason=${fr} (text may be truncated)`);
-    }
-    return text;
   }
 
   const response = await fetch(`${provider.baseUrl}/chat/completions`, {
@@ -2104,52 +2611,154 @@ async function aiGenerateProductCopy(options = {}) {
   const systemPrompt = String(options.systemPrompt || "").trim();
   const shortDescription = String(options.shortDescription || "").trim();
   const row = options.row && typeof options.row === "object" ? options.row : {};
-  const preferredModelCode = String(options.preferredModelCode || row.sku || row.variant_sku || "").trim().toUpperCase();
+  const preferredModelCode = pickBestSkuCode([
+    options.userProvidedSku,
+    options.preferredModelCode,
+    row.variant_sku,
+    row.sku,
+  ]);
   const overwriteFields = options.overwriteFields instanceof Set ? options.overwriteFields : new Set(Array.isArray(options.overwriteFields) ? options.overwriteFields : []);
   const lockedFields = options.lockedFields instanceof Set ? options.lockedFields : new Set(Array.isArray(options.lockedFields) ? options.lockedFields : []);
+  // Image options for Gemini unified mode: the primary product image is included in the single call.
+  const imageRoot = String(options.imageRoot || "").trim();
+  const imageNames = Array.isArray(options.imageNames) ? options.imageNames.map((x) => String(x || "").trim()).filter(Boolean) : [];
+  const productId = String(options.productId || imageNames[0] || "").trim();
+  const storeProductTypes = Array.isArray(options.productTypes)
+    ? options.productTypes.map((x) => String(x || "").trim()).filter(Boolean)
+    : readStoreProductTypes();
+  const relevantMetafields = Array.isArray(options.relevantMetafields)
+    ? options.relevantMetafields.map(normalizeMetafieldDefinition).filter(Boolean)
+    : [];
+  const fallbackProductType = Object.prototype.hasOwnProperty.call(options, "fallbackProductType")
+    ? String(options.fallbackProductType || "").trim()
+    : String(row.product_type || "").trim();
+  const requestId = crypto.randomUUID();
 
   if (!systemPrompt) return null;
 
+  // This is the task-level user message — it pairs with the system brief above.
+  // Together they form the complete two-layer instruction the AI model receives.
   const userMessage = [
-    "Generate the following product listing fields as a JSON object.",
-    "Return ONLY valid JSON - no markdown, no explanation, no code fences.",
+    "TASK:",
+    "Generate a complete, SEO-optimized Shopify product listing. All inputs are in the system context above.",
+    "Follow the INPUT PRIORITY order strictly: merchant input first, images second, research third.",
     "",
-    shortDescription ? `User goal: "${shortDescription}"` : "",
-    preferredModelCode ? `Preferred model/SKU code: \"${preferredModelCode}\" (preserve exactly as written)` : "",
+    "Step 1 — Read the merchant input",
+    "  The merchant's notes and any provided field values (price, SKU, specs, description seed) are the source of truth.",
+    "  Your job is to refine the language and improve SEO — not change the facts.",
+    shortDescription ? `  Merchant input: "${shortDescription}"` : "  Merchant input: (none provided — proceed from images and brand context)",
+    preferredModelCode ? `  SKU / model code (inventory identifier — store in 'sku' field ONLY, never in title): "${preferredModelCode}"` : "",
     "",
-    "Return JSON with exactly these keys:",
-    '  "title": concise keyword-rich product title (max 80 chars, title case, preserve product codes like MR16/GU10/E26/LED in ALL CAPS)',
-    '  "description_html": SEO-optimized HTML product description. Lead with the strongest benefit sentence from the user goal. Include a <ul> of key specs. 120-280 words.',
-    '  "seo_title": search-optimized page title with primary keywords (max 70 chars)',
-    '  "seo_description": meta description that drives clicks, keyword-rich, ends with a call to action (max 155 chars)',
-    '  "meta_keywords": comma-separated keyword list for search indexing (max 10 terms)',
-    '  "tags": array of 8-15 lowercase hyphenated Shopify tags for discoverability and collection routing',
-    '  "vendor": brand/manufacturer name',
-    '  "product_type": Shopify product type string matching store taxonomy',
-    '  "sku": product SKU/model code (preserve exact user-provided value when present)',
-    '  "price": decimal price string without currency symbol (example: "49.99")',
-    '  "key_features": array of 4-8 concise feature bullet strings',
+    "Step 2 — Analyze the product images",
+    "  Examine each image for product category, form factor, materials, finish, components, and intended use.",
+    "  Then apply your knowledge of how this type of product is marketed and searched online:",
+    "  • How do successful sellers on Shopify and major e-commerce platforms title and describe similar products?",
+    "  • What terms do buyers actually search for in this category?",
+    "  • What SEO patterns, tag conventions, and meta descriptions perform well for this product type?",
+    "  Use these research signals to strengthen the title, tags, and SEO fields beyond what the merchant provided.",
+    "",
+    "Step 3 — Generate the listing",
+    "Produce a single valid JSON object with these fields:",
+    '  "title"            – Buyer-facing SEO title. Formula: [Brand] [Product Type] – [Key Material/Feature], [Use Case] w/ [Core Spec(s)].',
+    '                       Max 120 chars. Title Case. Standard codes (MR16, GU10, PAR38, LED) in ALL CAPS.',
+    '                       Never put the SKU or model number in the title. Never dump raw spec sequences. Never repeat the product type word.',
+    '  "description_html" – Rich HTML body (120-280 words): benefit-led Hook → 1-2 context sentences → <ul> with 6-10 confirmed specs → closer.',
+    '  "seo_title"        – Meta page title. Primary buyer search keyword, distinct from title. Max 70 chars.',
+    '  "seo_description"  – Meta description. Keyword-rich, ends with a call to action. Max 155 chars.',
+    '  "meta_keywords"    – Comma-separated buyer search terms. Max 10.',
+    '  "tags"             – JSON array. 8-15 lowercase hyphenated tags covering brand, category, voltage, wattage, material, finish, color temp, use case.',
+    '  "vendor"           – Brand or manufacturer name.',
+    '  "product_type"     – Shopify product type. Match store taxonomy from context.',
+    '  "product_type_confidence" – Integer 0-100 confidence that product_type matches an existing store type.',
+    '  "alternate_product_types" – JSON array of up to 3 existing Shopify product types that could also fit.',
+    '  "product_type_new_suggestion" – Proposed new product type only if no existing store type is a credible match.',
+    '  "sku"              – Exact merchant-provided SKU/model. Inventory identifier only. Empty string if none provided.',
+    '  "price"            – Decimal string, no symbol. E.g. "49.99". Preserve merchant value exactly if given.',
+    '  "key_features"     – JSON array of 4-8 concise confirmed product attribute bullets.',
+    '  "base_type"         – Bulb/socket base type extracted from images or specs (e.g. "G5.3", "E26", "GU10", "MR16"). Empty string if unknown.',
+    '  "voltage"           – Operating voltage (e.g. "12V", "120V"). Empty string if unknown.',
+    '  "wattage"           – Power draw (e.g. "5W", "50W"). Empty string if unknown.',
+    '  "color_temp"        – Color temperature (e.g. "3000K", "4000K", "5000K"). Empty string if unknown.',
+    '  "lumen_output"      – Lumen output if detectable (e.g. "400lm", "450lm"). Empty string if unknown.',
+    '  "material"          – Primary housing or body material (e.g. "solid brass", "stainless steel", "die-cast aluminum"). Empty string if unknown.',
+    '  "finish"            – Surface finish if applicable (e.g. "brushed nickel", "matte black", "antique brass"). Empty string if unknown.',
+    '  "ip_rating"         – IP weatherproofing rating if visible or mentioned (e.g. "IP67", "IP65"). Empty string if unknown.',
+    '  "dimmable"          – "yes", "no", or empty string if unknown.',
+    '  "install_type"      – Installation method if determinable (e.g. "in-ground", "surface mount", "recessed", "pendant"). Empty string if unknown.',
+    '  "ignored_images"     – JSON array of image file names that appear irrelevant, non-product, or unsafe to use.',
+    '  "image_quality_notes" – Short note about image usefulness or problems. Empty string if no issues.',
+    "",
+    "Return ONLY the JSON object. No markdown. No explanation. No code fences.",
   ].filter(Boolean).join("\n");
 
+  const actionStart = Date.now();
+  // Token accumulator: aggregates token counts and call count across all Gemini HTTP calls
+  // triggered by this single user action (primary call + optional JSON-repair retry).
+  const tokenAccumulator = provider.provider === "gemini"
+    ? { inputTokens: 0, outputTokens: 0, calls: 0, retries: 0, cacheHit: false }
+    : null;
+
   try {
+    // For Gemini: load the primary product image and include it in the single unified call.
+    // Only 1 image is sent by default to minimize token usage and API cost.
+    // Install sharp (npm install sharp) to enable automatic resize before upload.
+    const geminiImages = [];
+    if (provider.provider === "gemini" && imageRoot && imageNames.length) {
+      const primaryImages = resolveLocalUploadedImagePaths(imageRoot, imageNames, 1);
+      for (const img of primaryImages) {
+        const mimeType = imageMimeTypeFromFileName(img.name);
+        const compressed = await compressImageForGemini(img.absPath, mimeType);
+        if (compressed) {
+          geminiImages.push({ mimeType: compressed.mimeType, base64: compressed.data.toString("base64") });
+        }
+      }
+    }
+
+    // Session cache key: fingerprint of product-specific inputs — NOT system prompt boilerplate.
+    // Using shortDescription + imageNames + productId ensures different products get different keys.
+    // (The old sp.slice(0,400) key was always identical across products — that was a bug.)
+    const cacheKey = provider.provider === "gemini"
+      ? makeGeminiCacheKey({ desc: shortDescription, imgs: imageNames, pid: productId })
+      : null;
+
     const raw = await requestAiCopyRaw(provider, systemPrompt, userMessage, {
       temperature: 0.3,
-      maxTokens: 1800,
+      maxTokens: 3200,
+      images: geminiImages,
+      requestId,
+      productId,
+      cacheKey,
+      callNumber: 1,
+      tokenAccumulator,
     });
     if (!raw) return null;
+    if (raw === GEMINI_QUOTA_ERROR) {
+      console.warn("[ai-copy] gemini quota exceeded — generation skipped");
+      return null;
+    }
 
     let aiFields = parseAiJsonObject(raw);
     if (!aiFields) {
       // Retry once with a stricter, shorter instruction to recover from malformed JSON.
+      if (tokenAccumulator) tokenAccumulator.retries++;
       const retryRaw = await requestAiCopyRaw(
         provider,
         systemPrompt,
         `${userMessage}\n\nIMPORTANT: return exactly one valid minified JSON object with double-quoted keys and values where applicable. No markdown or commentary.`,
         {
           temperature: 0,
-          maxTokens: 1400,
+          maxTokens: 2800,
+          images: geminiImages,
+          requestId,
+          productId,
+          callNumber: 2,
+          tokenAccumulator,
         }
       );
+      if (retryRaw === GEMINI_QUOTA_ERROR) {
+        console.warn("[ai-copy] gemini quota exceeded on retry — generation skipped");
+        return null;
+      }
       aiFields = parseAiJsonObject(retryRaw);
     }
     if (!aiFields) {
@@ -2157,9 +2766,33 @@ async function aiGenerateProductCopy(options = {}) {
       return null;
     }
 
+    const productTypeResolution = storeProductTypes.length
+      ? resolveAiProductTypeSelection(aiFields, storeProductTypes, fallbackProductType)
+      : {
+        productType: String(aiFields.product_type || "").trim(),
+        source: "ai-unvalidated",
+        confidence: normalizeProductTypeConfidence(aiFields.product_type_confidence),
+        requestedProductType: String(aiFields.product_type || "").trim(),
+        alternateProductTypes: normalizeJsonStringArray(aiFields.alternate_product_types),
+        newProductTypeSuggestion: String(aiFields.product_type_new_suggestion || "").trim(),
+        needsUserReview: true,
+      };
+    if (productTypeResolution.productType) {
+      aiFields.product_type = productTypeResolution.productType;
+    } else if (storeProductTypes.length) {
+      aiFields.product_type = "";
+    }
+    const aiMetafields = normalizeAiMetafields(aiFields, relevantMetafields);
+
     // Merge AI fields into the row, respecting locked fields and only
     // overwriting empty or explicitly-overwrite-requested fields.
     const merged = { ...row };
+    Object.defineProperty(merged, "__aiFields", { value: aiFields, enumerable: false });
+    Object.defineProperty(merged, "__productTypeResolution", { value: productTypeResolution, enumerable: false });
+    Object.defineProperty(merged, "__aiMetafields", { value: aiMetafields, enumerable: false });
+    if (storeProductTypes.length && !productTypeResolution.productType && !lockedFields.has("product_type")) {
+      merged.product_type = "";
+    }
 
     function applyAiField(rowKey, aiValue) {
       if (!aiValue) return;
@@ -2218,25 +2851,66 @@ async function aiGenerateProductCopy(options = {}) {
       }
     }
 
-    // Ensure preferred model/SKU code is visible in title and sku field.
+    // Spec field passthrough — AI-extracted technical specifications flow directly into
+    // the merged row as named columns so import-products-csv.js can build metafields from them.
+    if (Object.keys(aiMetafields).length && shouldPopulateField(merged, "metafields_json", overwriteFields, lockedFields)) {
+      merged.metafields_json = mergeMetafieldsJsonObject(merged.metafields_json, aiMetafields);
+    }
+
+    const specFields = [
+      "base_type", "voltage", "wattage", "color_temp",
+      "lumen_output", "material", "finish", "ip_rating", "dimmable", "install_type",
+    ];
+    for (const specKey of specFields) {
+      const raw = String(aiFields[specKey] || "").trim();
+      if (raw) applyAiField(specKey, raw);
+    }
+
+    // Ensure preferred model/SKU code is kept in SKU fields.
     if (preferredModelCode) {
       if (shouldPopulateField(merged, "sku", overwriteFields, lockedFields)) {
-        merged.sku = firstNonEmpty([String(merged.sku || "").trim(), preferredModelCode]);
+        const currentSku = String(merged.sku || "").trim();
+        if (!currentSku || looksAutoGeneratedSku(currentSku) || currentSku.toUpperCase() !== preferredModelCode) {
+          merged.sku = preferredModelCode;
+        }
       }
-      const currentTitle = String(merged.title || "").trim();
-      if (currentTitle && !currentTitle.toUpperCase().includes(preferredModelCode)) {
-        merged.title = normalizeTitleCase(`${preferredModelCode} ${currentTitle}`.trim()).slice(0, 120);
+      if (shouldPopulateField(merged, "variant_sku", overwriteFields, lockedFields)) {
+        const currentVariantSku = String(merged.variant_sku || "").trim();
+        if (!currentVariantSku || looksAutoGeneratedSku(currentVariantSku)) {
+          merged.variant_sku = preferredModelCode;
+        }
       }
     }
 
     // Merge AI tags with existing tags (deduplicated)
     if (Array.isArray(aiFields.tags) && aiFields.tags.length && !lockedFields.has("tags")) {
       const existingTags = String(merged.tags || "").split("|").map((t) => t.trim().toLowerCase()).filter(Boolean);
-      const aiTags = aiFields.tags.map((t) => String(t || "").trim().toLowerCase().replace(/\s+/g, "-")).filter(Boolean);
+      // Normalize AI tags and strip any that look like SKU/model codes (e.g. wlc-f-kit-5wled).
+      // SKU-pattern: 2-6 letter prefix followed by 2+ hyphenated segments that contain a digit.
+      // These are inventory identifiers — they pollute collection filters and search tags.
+      const skuPattern = /^[a-z]{2,6}(?:-[a-z0-9]{1,10}){2,}$/;
+      const normalizedSku = String(merged.sku || aiFields.sku || "").trim().toLowerCase().replace(/\s+/g, "-");
+      const isSkuTag = (tag) => {
+        if (normalizedSku && tag === normalizedSku) return true;
+        // Heuristic: 3+ hyphen segments with at least one digit segment → looks like a model/sku code
+        if (skuPattern.test(tag) && /[0-9]/.test(tag)) return true;
+        return false;
+      };
+      const aiTags = aiFields.tags
+        .map((t) => String(t || "").trim().toLowerCase().replace(/\s+/g, "-"))
+        .filter((t) => Boolean(t) && !isSkuTag(t));
       const combined = [...new Set([...existingTags, ...aiTags])];
       merged.tags = combined.join("|");
     }
 
+    // Action-level summary: total calls, total tokens, duration, and estimated cost for this
+    // single user action. One line per product generation — easy to scan in server logs.
+    if (tokenAccumulator) {
+      const duration = Date.now() - actionStart;
+      const totalCost = estimateGeminiCostUsd(provider.model, tokenAccumulator.inputTokens, tokenAccumulator.outputTokens);
+      const status = tokenAccumulator.cacheHit ? "CACHE_HIT" : (tokenAccumulator.retries ? `RETRY(${tokenAccumulator.retries})` : "OK");
+      console.log(`[gemini-summary] reqId=${requestId} product=${productId || "?"} status=${status} calls=${tokenAccumulator.calls} in=${tokenAccumulator.inputTokens}tok out=${tokenAccumulator.outputTokens}tok ${duration}ms ~$${totalCost}`);
+    }
     return merged;
   } catch (err) {
     console.warn(`[ai-copy] Generation failed: ${err.message}`);
@@ -2269,6 +2943,13 @@ function shouldPopulateField(targetRow, field, overwriteFields, lockedFields) {
   if (lockedFields.has(field)) return false;
   if (!String(targetRow[field] || "").trim()) return true;
   return overwriteFields.has(field);
+}
+
+function normalizeFieldKey(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
 }
 
 // Known product/lighting codes that should always be ALL-CAPS
@@ -2321,6 +3002,13 @@ function looksAutoGeneratedSku(value) {
   return false;
 }
 
+function pickBestSkuCode(candidates) {
+  const values = (Array.isArray(candidates) ? candidates : [])
+    .map((value) => String(value || "").trim().toUpperCase())
+    .filter(Boolean);
+  return values.find((value) => !looksAutoGeneratedSku(value)) || values[0] || "";
+}
+
 function applyAutofillToRow(row, options = {}) {
   const next = { ...(row || {}) };
   const shortDescription = String(options.shortDescription || "").trim();
@@ -2357,6 +3045,26 @@ function applyAutofillToRow(row, options = {}) {
     }
   }
 
+  function applyEvidenceMappings(items) {
+    const normalizedHeaders = Object.keys(next).map((field) => ({
+      field,
+      normalized: normalizeFieldKey(field),
+    }));
+
+    for (const item of items) {
+      const value = String(item && item.value === undefined || item && item.value === null ? "" : item && item.value).trim();
+      if (!value) continue;
+      const aliases = Array.isArray(item.aliases) ? item.aliases.map(normalizeFieldKey).filter(Boolean) : [];
+      if (!aliases.length) continue;
+      for (const header of normalizedHeaders) {
+        if (!aliases.includes(header.normalized)) continue;
+        if (shouldPopulateField(next, header.field, overwriteFields, lockedFields)) {
+          next[header.field] = value;
+        }
+      }
+    }
+  }
+
   const effectiveProductType = firstNonEmpty([
     suggestedProductType,
     next.product_type,
@@ -2377,6 +3085,7 @@ function applyAutofillToRow(row, options = {}) {
     brandProfile.brandDisplayName,
     brandProfile.brandName,
     brandProfile.brandVendor,
+    consistencyOptions.vendor && consistencyOptions.vendor[0],
   ]);
   
   // Build SEO-optimized title using all available assets
@@ -2388,12 +3097,8 @@ function applyAutofillToRow(row, options = {}) {
     titleParts.push(brandIdentity);
   }
   
-  // Add model/SKU if available
-  if (inferred.modelCode) {
-    titleParts.push(inferred.modelCode);
-  } else if (userPriority.modelCode) {
-    titleParts.push(userPriority.modelCode);
-  }
+  // Preserve model/SKU for SKU fields and description context; do not force in title.
+  const preferredSkuForTitle = pickBestSkuCode([userPriority.sku, userPriority.modelCode, inferred.modelCode]);
   
   // Add product type (essential SEO keyword)
   if (effectiveProductType) {
@@ -2402,13 +3107,25 @@ function applyAutofillToRow(row, options = {}) {
   
   // Add key specifications for SEO and specificity
   const specParts = [];
-  if (inferred.voltage || userPriority.voltage) specParts.push(inferred.voltage || userPriority.voltage);
-  if (inferred.wattage || userPriority.wattage) specParts.push(inferred.wattage || userPriority.wattage);
-  if (inferred.colorTemp || userPriority.colorTemp) specParts.push(inferred.colorTemp || userPriority.colorTemp);
-  if (inferred.installType) specParts.push(inferred.installType);
-  if (inferred.material || userPriority.material) specParts.push(inferred.material || userPriority.material);
-  if (inferred.finish || userPriority.finish) specParts.push(inferred.finish || userPriority.finish);
-  if (inferred.baseType || userPriority.baseType) specParts.push(inferred.baseType || userPriority.baseType);
+  const productTypeTitleNorm = normalizeComparable(effectiveProductType);
+  const pushTitleSpec = (value) => {
+    const text = String(value || "").trim();
+    const norm = normalizeComparable(text);
+    if (!norm) return;
+    if (productTypeTitleNorm.includes(norm)) return;
+    if (specParts.some((part) => {
+      const existing = normalizeComparable(part);
+      return existing === norm || existing.includes(norm) || norm.includes(existing);
+    })) return;
+    specParts.push(text);
+  };
+  pushTitleSpec(inferred.voltage || userPriority.voltage);
+  pushTitleSpec(inferred.wattage || userPriority.wattage);
+  pushTitleSpec(inferred.colorTemp || userPriority.colorTemp);
+  pushTitleSpec(inferred.installType);
+  pushTitleSpec(inferred.material || userPriority.material);
+  pushTitleSpec(inferred.finish || userPriority.finish);
+  pushTitleSpec(inferred.baseType || userPriority.baseType);
   
   if (specParts.length > 0) {
     titleParts.push(specParts.join(" "));
@@ -2421,7 +3138,6 @@ function applyAutofillToRow(row, options = {}) {
   if (!seoTitle || seoTitle.length < 20) {
     const compactTitle = [
       brandIdentity,
-      inferred.modelCode || userPriority.modelCode,
       effectiveProductType,
       inferred.installType,
       firstNonEmpty([inferred.finish, inferred.material]),
@@ -2447,14 +3163,19 @@ function applyAutofillToRow(row, options = {}) {
   ].filter(Boolean);
 
   const detailParts = [
-    inferred.modelCode ? `Model ${inferred.modelCode}` : "",
+    preferredSkuForTitle && !looksAutoGeneratedSku(preferredSkuForTitle) ? `Model ${preferredSkuForTitle}` : "",
     inferred.installType ? `${inferred.installType} design` : "",
     inferred.finish ? `Finish: ${inferred.finish}` : "",
     visionHint ? `Visual context: ${visionHint}` : "",
   ].filter(Boolean);
 
-  // Build a keyword-rich description using the premium user input as the lead sentence
-  const descriptionLead = shortDescription || (effectiveProductType ? `${effectiveProductType} by ${brandIdentity || "Ironsmith Lighting"}` : "Product");
+  const cleanListingSummary = buildCleanListingSummary({
+    rawIntake: shortDescription,
+    inferred,
+    productType: effectiveProductType,
+    brandIdentity,
+    visionHint,
+  });
   const descriptionBody = [
     detailParts.length ? detailParts.join(". ") + "." : "",
     specParts2.length ? `Specs: ${specParts2.join("; ")}.` : "",
@@ -2462,9 +3183,9 @@ function applyAutofillToRow(row, options = {}) {
   ].filter(Boolean).join(" ").trim();
 
   const description = firstNonEmpty([
-    `${descriptionLead}${descriptionBody ? " " + descriptionBody : ""}`.trim(),
+    `${cleanListingSummary}${descriptionBody ? " " + descriptionBody : ""}`.trim(),
     templateDefaults && templateDefaults.defaultDescription,
-    shortDescription,
+    cleanRawIntakeForListing(shortDescription),
     brandProfile.notes,
   ]);
   const optimization = buildSearchOptimizationFields({
@@ -2477,7 +3198,7 @@ function applyAutofillToRow(row, options = {}) {
   });
 
   if (shouldPopulateField(next, "short_description", overwriteFields, lockedFields)) {
-    next.short_description = firstNonEmpty([shortDescription, visionHint, seoTitle]);
+    next.short_description = firstNonEmpty([cleanListingSummary, visionHint, seoTitle]);
   }
   if (shouldPopulateField(next, "title", overwriteFields, lockedFields)) {
     next.title = normalizeTitleCase(seoTitle);
@@ -2493,6 +3214,12 @@ function applyAutofillToRow(row, options = {}) {
   }
   if (shouldPopulateField(next, "product_type", overwriteFields, lockedFields)) {
     next.product_type = effectiveProductType;
+  }
+  if (shouldPopulateField(next, "product_kind", overwriteFields, lockedFields)) {
+    next.product_kind = normalizeProductKind(brandProfile.productKind || next.product_kind || "physical");
+  }
+  if (shouldPopulateField(next, "inventory", overwriteFields, lockedFields) && normalizeProductKind(brandProfile.productKind || next.product_kind) === "physical") {
+    next.inventory = firstNonEmpty([next.inventory, "0"]);
   }
   if (shouldPopulateField(next, "vendor", overwriteFields, lockedFields)) {
     next.vendor = firstNonEmpty([
@@ -2549,15 +3276,7 @@ function applyAutofillToRow(row, options = {}) {
     } catch {
       currentMeta = {};
     }
-    const mergedMeta = {
-      ...buildMetafieldSeed(8),
-      ...(currentMeta && typeof currentMeta === "object" ? currentMeta : {}),
-    };
-    if (!mergedMeta.seo) mergedMeta.seo = {};
-    if (!mergedMeta.seo.meta_title) mergedMeta.seo.meta_title = optimization.seoTitle;
-    if (!mergedMeta.seo.meta_description) mergedMeta.seo.meta_description = optimization.seoDescription;
-    if (!mergedMeta.seo.search_keywords) mergedMeta.seo.search_keywords = optimization.keywordBlob;
-    next.metafields_json = JSON.stringify(mergedMeta);
+    next.metafields_json = Object.keys(currentMeta || {}).length ? JSON.stringify(currentMeta) : "";
   }
   if (shouldPopulateField(next, "status", overwriteFields, lockedFields)) {
     next.status = "DRAFT";
@@ -2568,19 +3287,26 @@ function applyAutofillToRow(row, options = {}) {
   if (shouldPopulateField(next, "title_seed", overwriteFields, lockedFields)) {
     next.title_seed = seoTitle;
   }
+  const preferredSku = pickBestSkuCode([explicitSku, userPriority.sku, userPriority.modelCode, next.variant_sku, inferred.modelCode]);
   if (shouldPopulateField(next, "sku", overwriteFields, lockedFields)) {
-    next.sku = inferred.modelCode;
+    next.sku = preferredSku;
   }
   applyMappedUserValue(["price", "variant_price"], firstNonEmpty([userPriority.price, normalizePriceString(inferred.price)]));
-  applyMappedUserValue(["sku", "variant_sku", "sku_values"], firstNonEmpty([explicitSku, userPriority.modelCode]));
+  applyMappedUserValue(["sku", "variant_sku", "sku_values"], preferredSku);
   applyMappedUserValue(
     ["key_features", "features", "highlights", "bullet_points", "key_benefits"],
     Array.isArray(inferred.keyFeatures) && inferred.keyFeatures.length ? inferred.keyFeatures.join("|") : ""
   );
-  if (explicitSku && !lockedFields.has("sku")) {
+  if (preferredSku && !lockedFields.has("sku")) {
     const currentSku = String(next.sku || "").trim();
-    if (!currentSku || overwriteFields.has("sku") || looksAutoGeneratedSku(currentSku) || currentSku.toUpperCase() !== explicitSku) {
-      next.sku = explicitSku;
+    if (!currentSku || overwriteFields.has("sku") || looksAutoGeneratedSku(currentSku) || currentSku.toUpperCase() !== preferredSku) {
+      next.sku = preferredSku;
+    }
+  }
+  if (preferredSku && !lockedFields.has("variant_sku")) {
+    const currentVariantSku = String(next.variant_sku || "").trim();
+    if (!currentVariantSku || overwriteFields.has("variant_sku") || looksAutoGeneratedSku(currentVariantSku)) {
+      next.variant_sku = preferredSku;
     }
   }
   if (shouldPopulateField(next, "base_type", overwriteFields, lockedFields)) {
@@ -2639,6 +3365,88 @@ function applyAutofillToRow(row, options = {}) {
     }
     next.source_notes = notes.join("; ");
   }
+  applyEvidenceMappings([
+    {
+      value: seoTitle,
+      aliases: ["title", "product_title", "title_seed", "name", "product_name", "listing_title"],
+    },
+    {
+      value: description,
+      aliases: ["description", "body_html", "product_description", "listing_description", "short_description"],
+    },
+    {
+      value: effectiveProductType,
+      aliases: ["product_type", "type", "category", "product_category"],
+    },
+    {
+      value: brandIdentity,
+      aliases: ["vendor", "brand", "brand_name", "manufacturer", "supplier"],
+    },
+    {
+      value: firstNonEmpty([userPriority.price, normalizePriceString(inferred.price), templateDefaults && templateDefaults.defaultPrice, consistencyOptions.price && consistencyOptions.price[0]]),
+      aliases: ["price", "variant_price", "regular_price", "sale_price"],
+    },
+    {
+      value: preferredSku,
+      aliases: ["sku", "variant_sku", "product_sku", "model", "model_code", "model_number", "part_number"],
+    },
+    {
+      value: inferred.baseType,
+      aliases: ["base_type", "socket_type", "bulb_base", "base", "socket"],
+    },
+    {
+      value: inferred.wattage,
+      aliases: ["wattage", "variant_wattage", "watts", "power", "power_draw"],
+    },
+    {
+      value: inferred.voltage,
+      aliases: ["voltage", "variant_voltage", "input_voltage", "operating_voltage", "min_voltage"],
+    },
+    {
+      value: inferred.lumenOutput,
+      aliases: ["lumen_output", "lumens", "brightness", "output_lumens"],
+    },
+    {
+      value: inferred.colorTemp,
+      aliases: ["color_temp", "kelvin", "color_temperature", "cct"],
+    },
+    {
+      value: inferred.material,
+      aliases: ["material", "product_material"],
+    },
+    {
+      value: inferred.finish,
+      aliases: ["finish", "color", "product_finish"],
+    },
+    {
+      value: inferred.ipRating,
+      aliases: ["ip_rating", "weather_rating", "rating"],
+    },
+    {
+      value: inferred.dimmable,
+      aliases: ["dimmable", "dimming"],
+    },
+    {
+      value: Array.isArray(inferred.keyFeatures) && inferred.keyFeatures.length ? inferred.keyFeatures.join("|") : "",
+      aliases: ["key_features", "features", "highlights", "bullet_points", "key_benefits"],
+    },
+    {
+      value: optimization.seoTitle,
+      aliases: ["seo_title", "meta_title", "page_title", "search_title"],
+    },
+    {
+      value: optimization.seoDescription,
+      aliases: ["seo_description", "meta_description", "page_description", "search_description"],
+    },
+    {
+      value: optimization.keywordBlob,
+      aliases: ["search_keywords", "meta_keywords", "keywords"],
+    },
+    {
+      value: optimization.tags.join("|"),
+      aliases: ["tags", "tag_list", "search_tags"],
+    },
+  ]);
   ["website", "brand_website", "website_url", "brand_url", "reference_url", "reference_link", "source_url"]
     .forEach((field) => {
       if (shouldPopulateField(next, field, overwriteFields, lockedFields)) {
@@ -2656,26 +3464,42 @@ function applyAutofillToRow(row, options = {}) {
 }
 
 function buildMetafieldSeed(limit = 8) {
-  const definitions = readMetafieldDefinitions()
-    .filter((def) => {
-      const namespace = String(def.namespace || "");
-      return namespace
-        && !namespace.startsWith("shopify--")
-        && namespace !== "reviews";
-    })
-    .slice(0, Math.max(1, limit));
-
-  const seed = {};
-  for (const def of definitions) {
-    const namespace = String(def.namespace || "").trim();
-    const key = String(def.key || "").trim();
-    if (!namespace || !key) continue;
-    if (!seed[namespace]) seed[namespace] = {};
-    seed[namespace][key] = defaultValueForMetafieldType(def.type && def.type.name);
-  }
-
-  return seed;
+  return {};
 }
+
+const PRODUCT_TYPE_SUGGESTION_STOPWORDS = new Set([
+  "and",
+  "the",
+  "for",
+  "with",
+  "from",
+  "this",
+  "that",
+  "new",
+  "image",
+  "images",
+  "jpg",
+  "jpeg",
+  "png",
+  "webp",
+  "ironsmith",
+  "lighting",
+  "products",
+  "product",
+  "fixture",
+  "fixtures",
+  "light",
+  "lights",
+  "cast",
+  "solid",
+  "brass",
+  "bronze",
+  "wire",
+  "included",
+  "adjustable",
+  "modern",
+  "style",
+]);
 
 function tokenizeForSuggestion(value) {
   return String(value || "")
@@ -2683,7 +3507,192 @@ function tokenizeForSuggestion(value) {
     .replace(/[^a-z0-9]+/g, " ")
     .split(/\s+/)
     .map((x) => x.trim())
-    .filter((x) => x.length >= 3);
+    .filter((x) => x.length >= 3 && !PRODUCT_TYPE_SUGGESTION_STOPWORDS.has(x));
+}
+
+function normalizeProductTypeConfidence(value) {
+  const raw = String(value === undefined || value === null ? "" : value).replace(/%/g, "").trim();
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return 0;
+  const scaled = parsed > 0 && parsed <= 1 ? parsed * 100 : parsed;
+  return Math.max(0, Math.min(100, Math.round(scaled)));
+}
+
+function normalizeJsonStringArray(value) {
+  if (Array.isArray(value)) {
+    return value.map((x) => String(x || "").trim()).filter(Boolean);
+  }
+  const text = String(value || "").trim();
+  if (!text) return [];
+  try {
+    const parsed = JSON.parse(text);
+    if (Array.isArray(parsed)) return parsed.map((x) => String(x || "").trim()).filter(Boolean);
+  } catch {
+    // Fall through to delimiter parsing.
+  }
+  return text.split(/[|,\n]/).map((x) => String(x || "").trim()).filter(Boolean);
+}
+
+function findExactStoreProductType(value, productTypes) {
+  const wanted = normalizeComparable(value);
+  if (!wanted) return "";
+  return (Array.isArray(productTypes) ? productTypes : [])
+    .map((x) => String(x || "").trim())
+    .find((type) => normalizeComparable(type) === wanted) || "";
+}
+
+function rankStoreProductTypeMatches(value, productTypes, limit = 3) {
+  const candidateTokens = new Set(tokenizeForSuggestion(value));
+  const candidateComparable = normalizeComparable(value);
+  if (!candidateComparable) return [];
+
+  return (Array.isArray(productTypes) ? productTypes : [])
+    .map((type) => {
+      const typeComparable = normalizeComparable(type);
+      const typeTokens = tokenizeForSuggestion(type);
+      let score = 0;
+      if (typeComparable === candidateComparable) score += 100;
+      if (typeComparable.includes(candidateComparable) || candidateComparable.includes(typeComparable)) score += 20;
+      for (const token of typeTokens) {
+        if (candidateTokens.has(token)) score += 6;
+        else if ([...candidateTokens].some((t) => t.includes(token) || token.includes(t))) score += 2;
+      }
+      return { type, score };
+    })
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score || a.type.localeCompare(b.type))
+    .slice(0, limit);
+}
+
+function resolveAiProductTypeSelection(aiFields, productTypes, fallbackProductType = "") {
+  const knownTypes = (Array.isArray(productTypes) ? productTypes : []).map((x) => String(x || "").trim()).filter(Boolean);
+  const requested = String(aiFields && aiFields.product_type || "").trim();
+  const confidence = normalizeProductTypeConfidence(aiFields && aiFields.product_type_confidence);
+  const alternatives = normalizeJsonStringArray(aiFields && aiFields.alternate_product_types);
+  const newSuggestion = String(aiFields && aiFields.product_type_new_suggestion || "").trim();
+
+  const exact = findExactStoreProductType(requested, knownTypes);
+  if (exact) {
+    return {
+      productType: exact,
+      source: "ai-existing",
+      confidence: confidence || 90,
+      requestedProductType: requested,
+      alternateProductTypes: alternatives.filter((type) => findExactStoreProductType(type, knownTypes)).slice(0, 3),
+      newProductTypeSuggestion: "",
+      needsUserReview: false,
+    };
+  }
+
+  const fuzzy = rankStoreProductTypeMatches(requested, knownTypes, 1)[0];
+  if (fuzzy && fuzzy.score >= 10 && confidence >= 70) {
+    return {
+      productType: fuzzy.type,
+      source: "ai-fuzzy-existing",
+      confidence,
+      requestedProductType: requested,
+      alternateProductTypes: alternatives.filter((type) => findExactStoreProductType(type, knownTypes)).slice(0, 3),
+      newProductTypeSuggestion: newSuggestion || requested,
+      needsUserReview: confidence < 85,
+    };
+  }
+
+  const fallback = findExactStoreProductType(fallbackProductType, knownTypes);
+  return {
+    productType: fallback,
+    source: fallback ? "app-fallback-existing" : "needs-user-selection",
+    confidence: fallback ? 55 : 0,
+    requestedProductType: requested,
+    alternateProductTypes: alternatives.filter((type) => findExactStoreProductType(type, knownTypes)).slice(0, 3),
+    newProductTypeSuggestion: newSuggestion || (requested && !exact ? requested : ""),
+    needsUserReview: true,
+  };
+}
+
+function normalizeMetafieldOutputValue(value, typeName) {
+  if (value === undefined || value === null) return "";
+  const type = String(typeName || "").trim();
+  if (Array.isArray(value)) {
+    const items = value.map((item) => String(item || "").trim()).filter(Boolean);
+    if (!items.length) return "";
+    return type.startsWith("list.") ? JSON.stringify(items) : items.join(", ");
+  }
+  if (typeof value === "object") {
+    return JSON.stringify(value);
+  }
+  const text = String(value || "").trim();
+  if (!text) return "";
+  if (type === "boolean") {
+    const lower = text.toLowerCase();
+    if (["yes", "true", "1", "on"].includes(lower)) return "true";
+    if (["no", "false", "0", "off"].includes(lower)) return "false";
+    return "";
+  }
+  if (type.startsWith("list.") && !(text.startsWith("[") && text.endsWith("]"))) {
+    return JSON.stringify(text.split(/[|,]/).map((x) => x.trim()).filter(Boolean));
+  }
+  return text;
+}
+
+function normalizeAiMetafields(aiFields, relevantMetafields) {
+  const definitions = (Array.isArray(relevantMetafields) ? relevantMetafields : [])
+    .map(normalizeMetafieldDefinition)
+    .filter(Boolean)
+    .filter(isPromptSafeMetafieldDefinition);
+  const definitionMap = new Map(definitions.map((definition) => [definition.id.toLowerCase(), definition]));
+  if (!definitionMap.size) return {};
+
+  let source = aiFields && (aiFields.metafields || aiFields.metafields_json);
+  if (!source) return {};
+  if (typeof source === "string") {
+    try {
+      source = JSON.parse(source);
+    } catch {
+      return {};
+    }
+  }
+
+  const out = {};
+  const addValue = (compound, rawValue) => {
+    const id = String(compound || "").trim();
+    const definition = definitionMap.get(id.toLowerCase());
+    if (!definition) return;
+    const value = normalizeMetafieldOutputValue(rawValue, definition.type);
+    if (!value) return;
+    out[definition.id] = value;
+  };
+
+  if (Array.isArray(source)) {
+    for (const item of source) {
+      if (!item || typeof item !== "object") continue;
+      const compound = item.namespace && item.key ? `${item.namespace}.${item.key}` : item.key;
+      addValue(compound, item.value);
+    }
+    return out;
+  }
+
+  if (source && typeof source === "object") {
+    for (const [compound, value] of Object.entries(source)) {
+      addValue(compound, value);
+    }
+  }
+  return out;
+}
+
+function mergeMetafieldsJsonObject(rawValue, mappedMetafields) {
+  const additions = mappedMetafields && typeof mappedMetafields === "object" ? mappedMetafields : {};
+  if (!Object.keys(additions).length) return String(rawValue || "").trim();
+  let current = {};
+  const raw = String(rawValue || "").trim();
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) current = parsed;
+    } catch {
+      current = {};
+    }
+  }
+  return JSON.stringify({ ...current, ...additions });
 }
 
 function createEmptyProductTypeLearning() {
@@ -2741,6 +3750,8 @@ function suggestProductType(shopContext, shortDescription, imageNames) {
       productType: "",
       source: "none",
       rankedSuggestions: [],
+      confidence: 0,
+      needsUserReview: true,
     };
   }
 
@@ -2751,6 +3762,8 @@ function suggestProductType(shopContext, shortDescription, imageNames) {
       productType: mapped || aliasTarget,
       source: "alias-match",
       rankedSuggestions: [mapped || aliasTarget].filter(Boolean),
+      confidence: 95,
+      needsUserReview: false,
     };
   }
 
@@ -2762,15 +3775,19 @@ function suggestProductType(shopContext, shortDescription, imageNames) {
       productType: exactLearned.productType,
       source: "learned-exact",
       rankedSuggestions: [exactLearned.productType],
+      confidence: 90,
+      needsUserReview: false,
     };
   }
 
   const tokens = new Set(signatureInfo.tokens);
   if (!tokens.size) {
     return {
-      productType: productTypes[0],
-      source: "fallback-first",
+      productType: "",
+      source: "needs-user-selection",
       rankedSuggestions: productTypes.slice(0, 3),
+      confidence: 0,
+      needsUserReview: true,
     };
   }
 
@@ -2795,11 +3812,11 @@ function suggestProductType(shopContext, shortDescription, imageNames) {
       productType: learnedBest,
       source: "learned-similar",
       rankedSuggestions: [learnedBest],
+      confidence: Math.min(78, 50 + learnedScore),
+      needsUserReview: learnedScore < 18,
     };
   }
 
-  let best = productTypes[0];
-  let bestScore = -1;
   const rankedTypes = productTypes
     .map((type) => {
       const typeTokens = tokenizeForSuggestion(type);
@@ -2810,15 +3827,26 @@ function suggestProductType(shopContext, shortDescription, imageNames) {
       }
       return { type, score };
     })
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 3)
-    .map((x) => x.type);
+    .filter((x) => x.score > 0)
+    .sort((a, b) => b.score - a.score || a.type.localeCompare(b.type))
+    .slice(0, 5);
 
-  best = rankedTypes[0] || productTypes[0];
+  const best = rankedTypes[0];
+  if (!best) {
+    return {
+      productType: "",
+      source: "no-confident-match",
+      rankedSuggestions: [],
+      confidence: 0,
+      needsUserReview: true,
+    };
+  }
   return {
-    productType: best,
+    productType: best.type,
     source: "store-match",
-    rankedSuggestions: rankedTypes,
+    rankedSuggestions: rankedTypes.map((x) => x.type),
+    confidence: Math.min(88, 45 + best.score * 8),
+    needsUserReview: best.score < 6,
   };
 }
 
@@ -2872,7 +3900,7 @@ function composeDraftCsvFromImages(headers, options = {}) {
   const shortDescription = String(options.shortDescription || "").trim();
   const suggestedProductType = String(options.suggestedProductType || "").trim();
   const firstImageName = String(imageNames[0] || "").trim();
-  const fallbackTitle = shortDescription || (firstImageName ? firstImageName.replace(/\.[a-z0-9]+$/i, "") : "New Product");
+  const fallbackTitle = suggestedProductType || (firstImageName ? firstImageName.replace(/\.[a-z0-9]+$/i, "") : "New Product");
   const title = fallbackTitle.slice(0, 120) || "New Product";
 
   const row = {};
@@ -2881,14 +3909,21 @@ function composeDraftCsvFromImages(headers, options = {}) {
   }
 
   if (Object.prototype.hasOwnProperty.call(row, "group_id")) row.group_id = `grp-${Date.now()}`;
-  if (Object.prototype.hasOwnProperty.call(row, "title")) row.title = title;
-  if (Object.prototype.hasOwnProperty.call(row, "handle")) row.handle = slugify(title);
+  if (Object.prototype.hasOwnProperty.call(row, "title")) row.title = "";
+  if (Object.prototype.hasOwnProperty.call(row, "handle")) row.handle = "";
   if (Object.prototype.hasOwnProperty.call(row, "product_type")) row.product_type = suggestedProductType;
-  if (Object.prototype.hasOwnProperty.call(row, "description")) row.description = shortDescription;
-  if (Object.prototype.hasOwnProperty.call(row, "body_html")) row.body_html = shortDescription;
+  if (Object.prototype.hasOwnProperty.call(row, "description")) row.description = "";
+  if (Object.prototype.hasOwnProperty.call(row, "body_html")) row.body_html = "";
+  if (Object.prototype.hasOwnProperty.call(row, "short_description")) row.short_description = "";
   if (Object.prototype.hasOwnProperty.call(row, "ready_to_publish")) row.ready_to_publish = "no";
   if (Object.prototype.hasOwnProperty.call(row, "metafields_json")) {
-    row.metafields_json = JSON.stringify(buildMetafieldSeed(8));
+    row.metafields_json = "";
+  }
+  if (Object.prototype.hasOwnProperty.call(row, "image_folder")) {
+    // import-products-csv resolves images from imageRoot + image_folder.
+    // For uploaded quick-flow images, imageRoot already points at the upload folder.
+    // Use "." so the importer scans that folder directly.
+    row.image_folder = imageNames.length ? "." : "";
   }
 
   const imageHeaders = headers.filter((header) => /^image(_\d+)?$/i.test(header) || /^image_\d+$/i.test(header));
@@ -3329,8 +4364,9 @@ function createBackgroundJob(shopContext, type, payload, runner) {
 async function performWorkflowImport(shopContext, payload) {
   const csvContent = String(payload.csvContent || "");
   const imageRoot = String(payload.imageRoot || "assets/products").trim() || "assets/products";
-  const shortDescription = String(payload.shortDescription || "").trim().slice(0, 240);
+  const shortDescription = String(payload.shortDescription || "").trim();
   const autoApplyTaxonomyFromSimilar = toBooleanLike(payload.autoApplyTaxonomyFromSimilar, true);
+  const skipAiEnrichment = toBooleanLike(payload.skipAiEnrichment, false);
 
   if (!csvContent.trim()) {
     return { ok: false, code: 1, error: "CSV content is empty." };
@@ -3344,10 +4380,12 @@ async function performWorkflowImport(shopContext, payload) {
   const result = await runImportWithInput(shopContext, inputPath, imageRoot, {
     autoApplyTaxonomyFromSimilar,
   });
-  const aiImportEnrichment = await enrichImportedOutputWithAi(shopContext, {
-    outputPath: result.outputPath,
-    shortDescription,
-  });
+  const aiImportEnrichment = skipAiEnrichment
+    ? { attempted: 0, generated: 0, skipped: 0, errors: 0, reason: "skipped-reviewed-fields" }
+    : await enrichImportedOutputWithAi(shopContext, {
+      outputPath: result.outputPath,
+      shortDescription,
+    });
   const pilotAudit = buildPilotAudit(result.rows);
 
   shopContext.workflowState.lastImport = {
@@ -3357,6 +4395,7 @@ async function performWorkflowImport(shopContext, payload) {
     stderr: result.stderr,
     shortDescription,
     autoApplyTaxonomyFromSimilar,
+    skipAiEnrichment,
     aiImportEnrichment,
     pilotAudit,
     inputPath: toPosixPath(inputPath),
@@ -3383,6 +4422,7 @@ async function performWorkflowImport(shopContext, payload) {
     stderr: result.stderr,
     shortDescription,
     autoApplyTaxonomyFromSimilar,
+    skipAiEnrichment,
     aiImportEnrichment,
     pilotAudit,
     inputPath: toPosixPath(inputPath),
@@ -3422,6 +4462,7 @@ async function enrichImportedOutputWithAi(shopContext, options = {}) {
     }
 
     const storeDb = readStoreDb();
+    const productTypes = readStoreProductTypes();
     const profile = readBrandProfile(shopContext.paths.brandProfilePath);
     const fallbackProfile = readDefaultBrandProfileFromCsv();
     const brandProfile = {
@@ -3433,11 +4474,21 @@ async function enrichImportedOutputWithAi(shopContext, options = {}) {
       websiteUrl: firstNonEmpty([profile.websiteUrl, fallbackProfile.websiteUrl]),
       profileImageUrl: firstNonEmpty([profile.profileImageUrl, fallbackProfile.profileImageUrl]),
       preset: firstNonEmpty([profile.preset, fallbackProfile.preset]),
+      productKind: normalizeProductKind(profile.productKind || fallbackProfile.productKind),
       notes: firstNonEmpty([profile.notes, fallbackProfile.notes]),
     };
 
     for (const product of products) {
       summary.attempted += 1;
+
+      // Pull existing spec metafields into the row so the AI has full product context.
+      const metafieldMap = {};
+      if (Array.isArray(product.metafields)) {
+        for (const mf of product.metafields) {
+          const key = String(mf.key || "").trim().toLowerCase();
+          if (key) metafieldMap[key] = String(mf.value || "").trim();
+        }
+      }
 
       const row = {
         title: String(product.title || "").trim(),
@@ -3447,30 +4498,70 @@ async function enrichImportedOutputWithAi(shopContext, options = {}) {
         seo_title: String(product?.seo?.title || "").trim(),
         seo_description: String(product?.seo?.description || "").trim(),
         tags: Array.isArray(product.tags) ? product.tags.map((t) => String(t || "").trim()).filter(Boolean).join("|") : "",
+        // Spec fields from existing metafields give the AI complete product context.
+        base_type: metafieldMap.base_type || "",
+        voltage: metafieldMap.voltage || "",
+        wattage: metafieldMap.wattage || "",
+        color_temp: metafieldMap.color_temp || "",
+        lumen_output: metafieldMap.lumen_output || "",
+        material: metafieldMap.material || "",
+        finish: metafieldMap.finish || "",
+        ip_rating: metafieldMap.ip_rating || "",
+        dimmable: metafieldMap.dimmable || "",
+        install_type: metafieldMap.install_type || "",
       };
 
+      // Retrieve image names from source so Gemini sees the right product images.
+      const enrichImageNames = Array.isArray(product?.source?.imageCandidates)
+        ? product.source.imageCandidates.map((p) => String(p || "")).filter(Boolean)
+        : [];
+
       const effectiveType = String(row.product_type || "").trim();
+      const trustedEffectiveType = findExactStoreProductType(effectiveType, productTypes);
       const typeHints = getStoreDbTypeHints(effectiveType, storeDb);
       const categoryProfile = getCategoryProfileForType(effectiveType, storeDb);
-      const inferred = inferSignalsFromContext(shortDescription, [], effectiveType, "");
+      const inferred = inferSignalsFromContext(shortDescription, enrichImageNames, effectiveType, "");
+      const relevantMetafields = selectRelevantMetafieldsForPrompt({
+        storeDb,
+        productType: effectiveType,
+        categoryProfile,
+        inferred,
+        shortDescription,
+        limit: 12,
+      });
+      const consistencyReference = buildConsistencyReference(
+        effectiveType,
+        null, // no live category context available in enrichment path
+        shopContext && shopContext.paths && shopContext.paths.listingConsistencyPath
+          ? readListingConsistencyState(shopContext.paths.listingConsistencyPath)
+          : null,
+        categoryProfile,
+      );
       const generationPrompt = buildStrongProductPrompt({
         shortDescription,
-        imageNames: [],
+        imageNames: enrichImageNames,
         row,
         suggestedProductType: effectiveType,
         brandProfile,
         templateDefaults: {},
         typeHints,
         categoryProfile,
-        consistencyReference: "",
+        consistencyReference,
         inferred,
         visionHint: "",
+        productTypes,
+        productTypeSuggestions: trustedEffectiveType ? [trustedEffectiveType] : [],
+        relevantMetafields,
       });
 
       const aiCopy = await aiGenerateProductCopy({
         systemPrompt: generationPrompt,
         shortDescription,
         row,
+        userProvidedSku: extractExplicitSkuFromText(shortDescription),
+        productTypes,
+        relevantMetafields,
+        fallbackProductType: trustedEffectiveType,
         overwriteFields: ["title", "description", "seo_title", "seo_description", "tags", "vendor", "product_type"],
       });
 
@@ -3494,6 +4585,42 @@ async function enrichImportedOutputWithAi(shopContext, options = {}) {
           .map((t) => String(t || "").trim())
           .filter(Boolean);
       }
+
+      // Merge AI-extracted spec fields back into product.metafields so any specs the AI
+      // identified from images that weren't in the original CSV are preserved.
+      const aiMetafields = aiCopy && aiCopy.__aiMetafields ? aiCopy.__aiMetafields : {};
+      for (const [compound, aiVal] of Object.entries(aiMetafields)) {
+        const dot = compound.indexOf(".");
+        if (dot <= 0) continue;
+        const namespace = compound.slice(0, dot);
+        const key = compound.slice(dot + 1);
+        const value = String(aiVal || "").trim();
+        if (!value) continue;
+        if (!Array.isArray(product.metafields)) product.metafields = [];
+        const existingIdx = product.metafields.findIndex((mf) => `${String(mf.namespace || "").trim()}.${String(mf.key || "").trim()}`.toLowerCase() === compound.toLowerCase());
+        if (existingIdx >= 0) {
+          if (!String(product.metafields[existingIdx].value || "").trim()) product.metafields[existingIdx].value = value;
+        } else {
+          const definition = relevantMetafields.find((mf) => mf.id.toLowerCase() === compound.toLowerCase());
+          product.metafields.push({ namespace, key, value, type: definition ? definition.type : "single_line_text_field" });
+        }
+      }
+      const aiSpecFields = ["base_type", "voltage", "wattage", "color_temp", "lumen_output", "material", "finish", "ip_rating", "dimmable", "install_type"];
+      for (const specKey of aiSpecFields) {
+        const aiVal = String(aiCopy[specKey] || "").trim();
+        if (!aiVal) continue;
+        if (!Array.isArray(product.metafields)) product.metafields = [];
+        const existingIdx = product.metafields.findIndex((mf) => String(mf.key || "").trim().toLowerCase() === specKey);
+        if (existingIdx >= 0) {
+          // Only update if the existing value is blank.
+          if (!String(product.metafields[existingIdx].value || "").trim()) {
+            product.metafields[existingIdx].value = aiVal;
+          }
+        } else {
+          product.metafields.push({ namespace: "custom", key: specKey, value: aiVal, type: "single_line_text_field" });
+        }
+      }
+
       summary.generated += 1;
     }
 
@@ -3510,6 +4637,10 @@ async function performWorkflowPush(shopContext, payload) {
   const mode = String(payload.mode || "dry").toLowerCase() === "live" ? "live" : "dry";
   const liveConfirm = String(payload.liveConfirm || "").trim();
   const outputPath = String(payload.outputPath || shopContext.workflowState.latestOutputPath || "").trim();
+  const brandProfile = readBrandProfile(shopContext.paths.brandProfilePath);
+  const locationId = String(payload.locationId || brandProfile.defaultLocationId || "").trim();
+  const pushMode = String(payload.pushMode || brandProfile.defaultPushMode || "update").trim().toLowerCase();
+  const targetProductId = String(payload.targetProductId || "").trim();
 
   if (!outputPath) {
     return { ok: false, code: 1, error: "No generated output available. Run import first." };
@@ -3527,7 +4658,7 @@ async function performWorkflowPush(shopContext, payload) {
     return { ok: false, code: 1, error: "Live push disabled for embedded shell. Set EMBEDDED_ALLOW_LIVE_PUSH=true to enable." };
   }
 
-  const result = await runPushForFile(outputPath, mode);
+  const result = await runPushForFile(outputPath, mode, locationId, pushMode, targetProductId);
 
   shopContext.workflowState.lastPush = {
     ok: result.ok,
@@ -4666,11 +5797,20 @@ function createServer() {
               edges {
                 node {
                   sku
+                  price
+                  inventoryQuantity
                   product {
                     id
                     title
                     status
                     handle
+                    productType
+                    vendor
+                    tags
+                    descriptionHtml
+                    featuredImage {
+                      url
+                    }
                   }
                 }
               }
@@ -4704,12 +5844,83 @@ function createServer() {
         const exists = matches.length > 0;
         const conflicts = matches.map((n) => ({
           sku: String(n.sku || ""),
+          price: String(n.price || ""),
+          inventoryQuantity: n.inventoryQuantity === undefined || n.inventoryQuantity === null ? "" : String(n.inventoryQuantity),
           productId: String(n.product?.id || ""),
           productTitle: String(n.product?.title || ""),
           productStatus: String(n.product?.status || ""),
           productHandle: String(n.product?.handle || ""),
+          productType: String(n.product?.productType || ""),
+          vendor: String(n.product?.vendor || ""),
+          tags: Array.isArray(n.product?.tags) ? n.product.tags.map((tag) => String(tag || "").trim()).filter(Boolean) : [],
+          descriptionHtml: String(n.product?.descriptionHtml || ""),
+          featuredImageUrl: String(n.product?.featuredImage?.url || ""),
         }));
         return sendJson(res, 200, { ok: true, exists, sku, conflicts });
+      } catch (error) {
+        return sendJson(res, 500, { ok: false, error: String(error.message || error) });
+      }
+    }
+
+    if (req.method === "GET" && requestUrl.pathname === "/api/store/products") {
+      try {
+        const shopContext = getContext();
+        const tokenEntry = getTokenByShop(shopContext.shop);
+        const accessToken = tokenEntry && tokenEntry.accessToken ? String(tokenEntry.accessToken) : "";
+        if (!accessToken) {
+          return sendJson(res, 200, { ok: true, products: [], reason: "no-token" });
+        }
+        const search = String(requestUrl.searchParams.get("search") || "").trim();
+        const limit = Math.min(Number(requestUrl.searchParams.get("limit") || 50), 100);
+        // Build Shopify search query: if user typed something, search title/sku/handle
+        const queryStr = search ? search.replace(/'/g, "\\'") : "";
+        const gql = `
+          query CatalogProducts($query: String!, $first: Int!) {
+            products(first: $first, query: $query, sortKey: UPDATED_AT, reverse: true) {
+              nodes {
+                id
+                title
+                handle
+                status
+                variants(first: 1) {
+                  nodes { sku }
+                }
+                featuredImage { url }
+              }
+            }
+          }
+        `;
+        const response = await fetch(
+          `https://${normalizeShop(shopContext.shop)}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Shopify-Access-Token": String(accessToken),
+            },
+            body: JSON.stringify({
+              query: gql,
+              variables: { query: queryStr, first: limit },
+            }),
+          }
+        );
+        if (!response.ok) {
+          return sendJson(res, 200, { ok: false, products: [], reason: "shopify-error" });
+        }
+        const payload = await response.json();
+        if (payload.errors) {
+          return sendJson(res, 200, { ok: false, products: [], reason: String(payload.errors[0]?.message || "graphql-error") });
+        }
+        const nodes = payload?.data?.products?.nodes || [];
+        const products = nodes.map((p) => ({
+          id: String(p.id || ""),
+          title: String(p.title || ""),
+          handle: String(p.handle || ""),
+          status: String(p.status || ""),
+          sku: String(p.variants?.nodes?.[0]?.sku || ""),
+          thumbnail: String(p.featuredImage?.url || ""),
+        }));
+        return sendJson(res, 200, { ok: true, products });
       } catch (error) {
         return sendJson(res, 500, { ok: false, error: String(error.message || error) });
       }
@@ -4729,6 +5940,7 @@ function createServer() {
           websiteUrl: firstNonEmpty([stored.websiteUrl, fallback.websiteUrl]),
           profileImageUrl: firstNonEmpty([stored.profileImageUrl, fallback.profileImageUrl]),
           preset: firstNonEmpty([stored.preset, fallback.preset]),
+          productKind: normalizeProductKind(stored.productKind || fallback.productKind),
           notes: firstNonEmpty([stored.notes, fallback.notes]),
         };
         return sendJson(res, 200, {
@@ -4760,8 +5972,12 @@ function createServer() {
           ])),
           profileImageUrl: String(body.profileImageUrl || "").trim(),
           preset: String(body.preset || "").trim(),
+          productKind: normalizeProductKind(body.productKind || body.product_kind || current.productKind),
           tone: String(body.tone || "").trim(),
           notes: String(body.notes || "").trim(),
+          defaultLocationId: String(body.defaultLocationId || "").trim(),
+          defaultLocationName: String(body.defaultLocationName || "").trim(),
+          defaultPushMode: String(body.defaultPushMode || "update").trim(),
         };
         writeBrandProfile(shopContext.paths.brandProfilePath, next);
         return sendJson(res, 200, {
@@ -4770,6 +5986,28 @@ function createServer() {
         });
       } catch (error) {
         return sendJson(res, 400, { ok: false, error: String(error.message || error) });
+      }
+    }
+
+    if (req.method === "GET" && requestUrl.pathname === "/api/locations") {
+      try {
+        const shopContext = getContext();
+        const tokenEntry = getTokenByShop(shopContext.shop);
+        const accessToken = tokenEntry && tokenEntry.accessToken ? String(tokenEntry.accessToken) : "";
+        if (!accessToken) return sendJson(res, 401, { ok: false, error: "No access token. Re-authenticate." });
+        const gql = `query ShopLocations { locations(first: 50) { nodes { id name isActive isPrimary } } }`;
+        const response = await fetch(
+          `https://${normalizeShop(shopContext.shop)}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`,
+          { method: "POST", headers: { "Content-Type": "application/json", "X-Shopify-Access-Token": String(accessToken) }, body: JSON.stringify({ query: gql }) }
+        );
+        const payload = await response.json();
+        if (!response.ok || (payload.errors && payload.errors.length)) {
+          return sendJson(res, 502, { ok: false, error: "Shopify locations query failed.", detail: payload.errors });
+        }
+        const locations = (payload?.data?.locations?.nodes || []).filter((l) => l.isActive);
+        return sendJson(res, 200, { ok: true, locations });
+      } catch (error) {
+        return sendJson(res, 500, { ok: false, error: String(error.message || error) });
       }
     }
 
@@ -4831,9 +6069,16 @@ function createServer() {
           ...((userPriority.sku || userPriority.modelCode) ? ["sku", "variant_sku"] : []),
         ];
         const suggestion = suggestProductType(shopContext, shortDescription, imageNames);
-        const suggestedProductType = suggestion.productType;
-        const visionHint = await getVisionContextHint({ imageRoot, imageNames, suggestedProductType, shortDescription });
-        const imageSpecHints = await extractStructuredSpecsFromImages({ imageRoot, imageNames, suggestedProductType, shortDescription });
+        const productTypes = readStoreProductTypes();
+        const trustedSuggestedProductType = suggestion.productType && !suggestion.needsUserReview && Number(suggestion.confidence || 0) >= 80
+          ? suggestion.productType
+          : "";
+        const suggestedProductType = trustedSuggestedProductType || suggestion.productType;
+        // Gemini unified mode: vision analysis is merged into the single listing generation call.
+        // Skipping the two separate pre-generation vision API calls reduces to 1 call per action.
+        const useGeminiUnified = AI_PROVIDER === "gemini" && Boolean(GEMINI_API_KEY);
+        const visionHint = useGeminiUnified ? "" : await getVisionContextHint({ imageRoot, imageNames, suggestedProductType: trustedSuggestedProductType, shortDescription });
+        const imageSpecHints = useGeminiUnified ? {} : await extractStructuredSpecsFromImages({ imageRoot, imageNames, suggestedProductType: trustedSuggestedProductType, shortDescription });
         const profile = readBrandProfile(shopContext.paths.brandProfilePath);
         const fallbackProfile = readDefaultBrandProfileFromCsv();
         const brandProfile = {
@@ -4845,9 +6090,10 @@ function createServer() {
           websiteUrl: firstNonEmpty([profile.websiteUrl, fallbackProfile.websiteUrl]),
           profileImageUrl: firstNonEmpty([profile.profileImageUrl, fallbackProfile.profileImageUrl]),
           preset: firstNonEmpty([profile.preset, fallbackProfile.preset]),
+          productKind: normalizeProductKind(profile.productKind || fallbackProfile.productKind),
           notes: firstNonEmpty([profile.notes, fallbackProfile.notes]),
         };
-        const categoryContext = await getCategoryContextForShop(shopContext, suggestedProductType);
+        const categoryContext = await getCategoryContextForShop(shopContext, trustedSuggestedProductType);
         const consistencyState = readListingConsistencyState(shopContext.paths.listingConsistencyPath);
         const consistencyReference = buildConsistencyReference(
           suggestedProductType,
@@ -4859,13 +6105,13 @@ function createServer() {
           shortDescription,
           imageNames,
           imageRoot,
-          suggestedProductType,
+          suggestedProductType: trustedSuggestedProductType,
         });
         const autofilledRow = applyAutofillToRow(draft.row, {
           shortDescription,
           imageNames,
           imageRoot,
-          suggestedProductType,
+          suggestedProductType: trustedSuggestedProductType,
           templateDefaults,
           brandProfile,
           consistencyReference,
@@ -4873,7 +6119,7 @@ function createServer() {
           imageSpecHints,
         });
         const storeDb = readStoreDb();
-        const effectiveType = String(autofilledRow.product_type || suggestedProductType || "").trim();
+        const effectiveType = String(autofilledRow.product_type || trustedSuggestedProductType || "").trim();
         const typeHints = getStoreDbTypeHints(effectiveType, storeDb);
         const categoryProfile = getCategoryProfileForType(effectiveType, storeDb);
         const effectiveConsistencyReference = buildConsistencyReference(
@@ -4886,13 +6132,21 @@ function createServer() {
           inferSignalsFromContext(shortDescription, imageNames, effectiveType, `${visionHint} ${buildImageSpecContextLine(imageSpecHints)}`.trim()),
           imageSpecHints
         );
+        const relevantMetafields = selectRelevantMetafieldsForPrompt({
+          storeDb,
+          productType: effectiveType,
+          categoryProfile,
+          inferred,
+          shortDescription,
+          limit: 12,
+        });
         // Calculate image weight influence: new images weighted by proportion of total
         const priorImageCount = 0; // On initial generation, no prior context
         const generationPrompt = buildStrongProductPrompt({
           shortDescription,
           imageNames,
           row: autofilledRow,
-          suggestedProductType: effectiveType,
+          suggestedProductType: effectiveType || suggestedProductType,
           brandProfile,
           templateDefaults,
           typeHints,
@@ -4902,15 +6156,25 @@ function createServer() {
           visionHint,
           imageSpecHints,
           categoryContext,
+          productTypes,
+          productTypeSuggestions: Array.isArray(suggestion.rankedSuggestions) ? suggestion.rankedSuggestions.slice(0, 5) : [],
+          relevantMetafields,
           priorImageCount,
         });
-        // Run AI copy generation with the full context prompt
+        // Run AI copy generation with the full context prompt.
+        // For Gemini: passes the primary product image for the single unified call.
         const aiCopy = await aiGenerateProductCopy({
           systemPrompt: generationPrompt,
           shortDescription,
           row: autofilledRow,
+          userProvidedSku: userPriority.sku || userPriority.modelCode,
           preferredModelCode: inferred.modelCode,
+          productTypes,
+          relevantMetafields,
+          fallbackProductType: trustedSuggestedProductType,
           lockedFields: aiLockedFields,
+          imageRoot: useGeminiUnified ? imageRoot : "",
+          imageNames: useGeminiUnified ? imageNames : [],
           overwriteFields: [
             "title",
             "description",
@@ -4926,23 +6190,52 @@ function createServer() {
         });
         const aiEnrichedRow = aiCopy || autofilledRow;
         const aiGenerated = Boolean(aiCopy);
+        const rawAiFields = aiCopy && aiCopy.__aiFields ? aiCopy.__aiFields : {};
+        const productTypeResolution = aiCopy && aiCopy.__productTypeResolution ? aiCopy.__productTypeResolution : null;
+        const aiMetafields = aiCopy && aiCopy.__aiMetafields ? aiCopy.__aiMetafields : {};
+        // aiBuffer: the raw structured output from the AI generation step, staged
+        // before field distribution. The UI can use this to show what the AI produced
+        // independently of any existing row values.
+        const aiBuffer = aiCopy ? {
+          title: rawAiFields.title || aiCopy.title || "",
+          description_html: rawAiFields.description_html || aiCopy.description || aiCopy.body_html || "",
+          seo_title: rawAiFields.seo_title || aiCopy.seo_title || "",
+          seo_description: rawAiFields.seo_description || aiCopy.seo_description || "",
+          meta_keywords: rawAiFields.meta_keywords || aiCopy.meta_keywords || aiCopy.search_keywords || "",
+          tags: rawAiFields.tags || aiCopy.tags || "",
+          key_features: rawAiFields.key_features || aiCopy.key_features || aiCopy.features || "",
+          sku: rawAiFields.sku || aiCopy.sku || "",
+          price: rawAiFields.price || aiCopy.price || "",
+          vendor: rawAiFields.vendor || aiCopy.vendor || "",
+          product_type: rawAiFields.product_type || aiCopy.product_type || "",
+          metafields: rawAiFields.metafields || {},
+          mapped_metafields: aiMetafields,
+          product_type_resolution: productTypeResolution,
+          product_type_confidence: rawAiFields.product_type_confidence || "",
+          alternate_product_types: rawAiFields.alternate_product_types || [],
+          product_type_new_suggestion: rawAiFields.product_type_new_suggestion || "",
+          ignored_images: rawAiFields.ignored_images || [],
+          image_quality_notes: rawAiFields.image_quality_notes || "",
+        } : null;
         const csvContent = [
           draft.headers.map((header) => csvEscape(header)).join(","),
           draft.headers.map((header) => csvEscape(aiEnrichedRow[header] || "")).join(","),
           "",
         ].join("\n");
-        const productTypes = readStoreProductTypes();
         const topProductTypeSuggestions = Array.isArray(suggestion.rankedSuggestions) 
-          ? suggestion.rankedSuggestions.slice(0, 3)
+          ? suggestion.rankedSuggestions.slice(0, 5)
           : [];
         return sendJson(res, 200, {
           ok: true,
           template: {
             headers: draft.headers,
             row: aiEnrichedRow,
+            aiBuffer,
             csvContent,
             suggestedProductType: draft.suggestedProductType,
             suggestionSource: suggestion.source,
+            suggestionConfidence: suggestion.confidence || 0,
+            productTypeNeedsReview: Boolean(suggestion.needsUserReview),
             topProductTypeSuggestions,
             imageRoot,
             productTypes,
@@ -4961,6 +6254,7 @@ function createServer() {
               consistencyReference: effectiveConsistencyReference,
               inferred,
               visionHint,
+              relevantMetafields,
             },
           },
         });
@@ -4997,6 +6291,7 @@ function createServer() {
           brandVendor: firstNonEmpty([profile.brandVendor, fallbackProfile.brandVendor]),
           websiteUrl: firstNonEmpty([profile.websiteUrl, fallbackProfile.websiteUrl]),
           profileImageUrl: firstNonEmpty([profile.profileImageUrl, fallbackProfile.profileImageUrl]),
+          productKind: normalizeProductKind(profile.productKind || fallbackProfile.productKind),
         };
         const visionHint = await describeProductFromImagesWithVision({
           imageRoot,
@@ -5047,7 +6342,12 @@ function createServer() {
         const suggestion = refreshSuggestedProductType
           ? suggestProductType(shopContext, shortDescription, imageNames)
           : { productType: String(body.suggestedProductType || "").trim(), source: "user-provided", rankedSuggestions: [] };
-        const suggestedProductType = suggestion.productType;
+        const productTypes = readStoreProductTypes();
+        const userSelectedProductType = findExactStoreProductType(suggestion.productType, productTypes);
+        const trustedSuggestedProductType = suggestion.source === "user-provided"
+          ? userSelectedProductType
+          : (suggestion.productType && !suggestion.needsUserReview && Number(suggestion.confidence || 0) >= 80 ? suggestion.productType : "");
+        const suggestedProductType = trustedSuggestedProductType || suggestion.productType;
         const overwriteFields = Array.isArray(body.overwriteFields)
           ? body.overwriteFields.map((x) => String(x || "").trim()).filter(Boolean)
           : [];
@@ -5059,8 +6359,10 @@ function createServer() {
           ...(userPriority.price ? ["price", "variant_price"] : []),
           ...((userPriority.sku || userPriority.modelCode) ? ["sku", "variant_sku"] : []),
         ])];
-        const visionHint = await getVisionContextHint({ imageRoot, imageNames, suggestedProductType, shortDescription });
-        const imageSpecHints = await extractStructuredSpecsFromImages({ imageRoot, imageNames, suggestedProductType, shortDescription });
+        // Gemini unified mode: vision + spec extraction merged into the single listing generation call.
+        const useGeminiUnified = AI_PROVIDER === "gemini" && Boolean(GEMINI_API_KEY);
+        const visionHint = useGeminiUnified ? "" : await getVisionContextHint({ imageRoot, imageNames, suggestedProductType: trustedSuggestedProductType, shortDescription });
+        const imageSpecHints = useGeminiUnified ? {} : await extractStructuredSpecsFromImages({ imageRoot, imageNames, suggestedProductType: trustedSuggestedProductType, shortDescription });
         const profile = readBrandProfile(shopContext.paths.brandProfilePath);
         const fallbackProfile = readDefaultBrandProfileFromCsv();
         const brandProfile = {
@@ -5072,9 +6374,10 @@ function createServer() {
           websiteUrl: firstNonEmpty([profile.websiteUrl, fallbackProfile.websiteUrl]),
           profileImageUrl: firstNonEmpty([profile.profileImageUrl, fallbackProfile.profileImageUrl]),
           preset: firstNonEmpty([profile.preset, fallbackProfile.preset]),
+          productKind: normalizeProductKind(profile.productKind || fallbackProfile.productKind),
           notes: firstNonEmpty([profile.notes, fallbackProfile.notes]),
         };
-        const lookupType = firstNonEmpty([suggestedProductType, row.product_type]);
+        const lookupType = firstNonEmpty([trustedSuggestedProductType, findExactStoreProductType(row.product_type, productTypes)]);
         const categoryContext = await getCategoryContextForShop(shopContext, lookupType);
         const consistencyState = readListingConsistencyState(shopContext.paths.listingConsistencyPath);
         const consistencyReference = buildConsistencyReference(
@@ -5087,7 +6390,7 @@ function createServer() {
           shortDescription,
           imageNames,
           imageRoot,
-          suggestedProductType,
+          suggestedProductType: trustedSuggestedProductType,
           templateDefaults,
           brandProfile,
           consistencyReference,
@@ -5097,7 +6400,7 @@ function createServer() {
           imageSpecHints,
         });
         const storeDb = readStoreDb();
-        const effectiveType = String(filled.product_type || suggestedProductType || "").trim();
+        const effectiveType = String(filled.product_type || trustedSuggestedProductType || "").trim();
         const typeHints = getStoreDbTypeHints(effectiveType, storeDb);
         const categoryProfile = getCategoryProfileForType(effectiveType, storeDb);
         const effectiveConsistencyReference = buildConsistencyReference(
@@ -5110,13 +6413,21 @@ function createServer() {
           inferSignalsFromContext(shortDescription, imageNames, effectiveType, `${visionHint} ${buildImageSpecContextLine(imageSpecHints)}`.trim()),
           imageSpecHints
         );
+        const relevantMetafields = selectRelevantMetafieldsForPrompt({
+          storeDb,
+          productType: effectiveType,
+          categoryProfile,
+          inferred,
+          shortDescription,
+          limit: 12,
+        });
         // Calculate image weight influence: new images weighted by proportion of total
         const priorImageCount = 0; // On autofill, estimate prior from context if available
         const generationPrompt = buildStrongProductPrompt({
           shortDescription,
           imageNames,
           row: filled,
-          suggestedProductType: effectiveType,
+          suggestedProductType: effectiveType || suggestedProductType,
           brandProfile,
           templateDefaults,
           typeHints,
@@ -5126,18 +6437,51 @@ function createServer() {
           visionHint,
           imageSpecHints,
           categoryContext,
+          productTypes,
+          productTypeSuggestions: Array.isArray(suggestion.rankedSuggestions) ? suggestion.rankedSuggestions.slice(0, 5) : [],
+          relevantMetafields,
           priorImageCount,
         });
         const aiCopy = await aiGenerateProductCopy({
           systemPrompt: generationPrompt,
           shortDescription,
           row: filled,
+          userProvidedSku: userPriority.sku || userPriority.modelCode,
           preferredModelCode: inferred.modelCode,
+          productTypes,
+          relevantMetafields,
+          fallbackProductType: trustedSuggestedProductType,
+          imageRoot: useGeminiUnified ? imageRoot : "",
+          imageNames: useGeminiUnified ? imageNames : [],
           overwriteFields,
           lockedFields: effectiveLockedFields,
         });
         const aiEnrichedRow = aiCopy || filled;
         const aiGenerated = Boolean(aiCopy);
+        const rawAiFields = aiCopy && aiCopy.__aiFields ? aiCopy.__aiFields : {};
+        const productTypeResolution = aiCopy && aiCopy.__productTypeResolution ? aiCopy.__productTypeResolution : null;
+        const aiMetafields = aiCopy && aiCopy.__aiMetafields ? aiCopy.__aiMetafields : {};
+        const aiBuffer = aiCopy ? {
+          title: rawAiFields.title || aiCopy.title || "",
+          description_html: rawAiFields.description_html || aiCopy.description || aiCopy.body_html || "",
+          seo_title: rawAiFields.seo_title || aiCopy.seo_title || "",
+          seo_description: rawAiFields.seo_description || aiCopy.seo_description || "",
+          meta_keywords: rawAiFields.meta_keywords || aiCopy.meta_keywords || aiCopy.search_keywords || "",
+          tags: rawAiFields.tags || aiCopy.tags || "",
+          key_features: rawAiFields.key_features || aiCopy.key_features || aiCopy.features || "",
+          sku: rawAiFields.sku || aiCopy.sku || "",
+          price: rawAiFields.price || aiCopy.price || "",
+          vendor: rawAiFields.vendor || aiCopy.vendor || "",
+          product_type: rawAiFields.product_type || aiCopy.product_type || "",
+          metafields: rawAiFields.metafields || {},
+          mapped_metafields: aiMetafields,
+          product_type_resolution: productTypeResolution,
+          product_type_confidence: rawAiFields.product_type_confidence || "",
+          alternate_product_types: rawAiFields.alternate_product_types || [],
+          product_type_new_suggestion: rawAiFields.product_type_new_suggestion || "",
+          ignored_images: rawAiFields.ignored_images || [],
+          image_quality_notes: rawAiFields.image_quality_notes || "",
+        } : null;
         const csvContent = [
           headers.map((header) => csvEscape(header)).join(","),
           headers.map((header) => csvEscape(aiEnrichedRow[header] || "")).join(","),
@@ -5151,10 +6495,15 @@ function createServer() {
           template: {
             headers,
             row: aiEnrichedRow,
+            aiBuffer,
             csvContent,
             brandProfile,
             suggestedProductType,
+            suggestionSource: suggestion.source,
+            suggestionConfidence: suggestion.confidence || 0,
+            productTypeNeedsReview: Boolean(suggestion.needsUserReview),
             topProductTypeSuggestions,
+            productTypes,
             aiGenerated,
             generationPrompt,
             inputGuidance: buildInputGuidance({
@@ -5168,6 +6517,7 @@ function createServer() {
               consistencyReference: effectiveConsistencyReference,
               inferred,
               visionHint,
+              relevantMetafields,
             },
           },
         });

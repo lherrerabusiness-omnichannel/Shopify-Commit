@@ -15,8 +15,11 @@ Execution quick links:
 
 1. In Shopify admin, go to Apps > App and sales channel settings > Develop apps.
 2. Create a custom app and grant Admin API scopes:
-   - `write_products`
    - `read_products`
+   - `write_products`
+   - `read_inventory`
+   - `write_inventory`
+   - `read_locations`
 3. Install the app.
 
 If your app is managed from Shopify Dev Dashboard and you do not see a token in UI, use the OAuth helper below to generate it.

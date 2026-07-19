@@ -550,7 +550,7 @@
       <div class="modal-detail" id="skuModalDetail"></div>
       <div class="modal-btns">
         <button class="btn primary" id="skuModalCreateNew" type="button">Create New Listing Anyway</button>
-        <button class="btn" id="skuModalCancel" type="button">Cancel &amp; Go Back</button>
+        <button class="btn" id="skuModalCancel" type="button">Skip This Listing</button>
       </div>
     </div>
   </div>
@@ -639,6 +639,26 @@
                 <input id="brandToneInput" type="text" placeholder="Tone (e.g., modern, expert, technical)" />
                 <input id="brandNotesInput" type="text" placeholder="Brand notes or default messaging" />
               </div>
+              <div class="inline">
+                <label style="font-size:0.79rem;color:var(--sub);">Default product format
+                  <select id="brandProductKindInput">
+                    <option value="physical">Physical products</option>
+                    <option value="digital">Digital products</option>
+                  </select>
+                </label>
+                <label style="font-size:0.79rem;color:var(--sub);">Default inventory location
+                  <select id="brandDefaultLocationInput">
+                    <option value="">— Select a location —</option>
+                  </select>
+                </label>
+                <label style="font-size:0.79rem;color:var(--sub);">Default push mode
+                  <select id="brandDefaultPushModeInput">
+                    <option value="update">Update Existing (add images)</option>
+                    <option value="replace">Replace All (delete &amp; re-upload images)</option>
+                    <option value="create">Always Create New Listing</option>
+                  </select>
+                </label>
+              </div>
               <div class="btns">
                 <button class="btn primary" id="brandProfileSaveBtn" type="button">Save Brand Profile</button>
                 <button class="btn" id="brandProfileRefreshBtn" type="button">Refresh Brand Profile</button>
@@ -666,6 +686,16 @@
               <div class="quick-note" id="quickImageMeta">No images selected yet (optional).</div>
               <label for="quickDescriptionInput" style="display:block;font-size:0.78rem;color:var(--sub);margin:10px 0 4px;text-transform:uppercase;letter-spacing:0.04em;">Short listing goal</label>
               <textarea id="quickDescriptionInput" class="quick-input" rows="5" placeholder="Example: modern brass well light fixture, low glare, weatherproof, easy install."></textarea>
+                          <div style="display:flex;gap:8px;margin-top:8px;">
+                            <div style="flex:1;">
+                              <label for="quickPriceInput" style="display:block;font-size:0.78rem;color:var(--sub);margin:0 0 3px;text-transform:uppercase;letter-spacing:0.04em;">Price (USD) <span style="color:#c0392b;font-weight:700;">*</span></label>
+                              <input id="quickPriceInput" type="text" inputmode="decimal" placeholder="e.g. 49.99" style="width:100%;box-sizing:border-box;" />
+                            </div>
+                            <div style="flex:1;">
+                              <label for="quickSkuInput" style="display:block;font-size:0.78rem;color:var(--sub);margin:0 0 3px;text-transform:uppercase;letter-spacing:0.04em;">SKU / Model #</label>
+                              <input id="quickSkuInput" type="text" placeholder="e.g. WLC-HM-KIT-5WLED" style="width:100%;box-sizing:border-box;" />
+                            </div>
+                          </div>
             </div>
             <div>
               <div class="quick-note" style="margin-bottom:8px;">Product type selection</div>
@@ -886,6 +916,32 @@
               <label for="workflowLiveConfirm">Live Confirm</label>
               <input id="workflowLiveConfirm" type="text" placeholder="Type LIVE for live push" />
             </div>
+            <div>
+              <label for="workflowLocationSelect">Inventory Location</label>
+              <select id="workflowLocationSelect">
+                <option value="">— Use default —</option>
+              </select>
+            </div>
+            <div>
+              <label for="workflowPushModeSelect">Push Mode</label>
+              <select id="workflowPushModeSelect">
+                <option value="update" selected>Update Existing (add images)</option>
+                <option value="replace">Replace All (delete &amp; re-upload images)</option>
+                <option value="create">Create New Listing (always new)</option>
+              </select>
+            </div>
+          </div>
+          <!-- Target product picker — visible only for update / replace mode -->
+          <div id="catalogTargetRow" style="margin-top:0.75rem; display:none; background:var(--bg-raised,#f5f7fa); border:1px solid var(--border,#d0d7de); border-radius:6px; padding:0.75rem 1rem;">
+            <div style="font-weight:600; font-size:0.82rem; margin-bottom:0.5rem; color:var(--text-muted,#57606a);">TARGET PRODUCT TO UPDATE</div>
+            <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
+              <input id="catalogSearchInput" type="text" placeholder="Search title, SKU, handle…" style="flex:1; min-width:180px;" />
+              <button id="catalogSearchBtn" type="button" class="btn" style="white-space:nowrap;">Search Catalog</button>
+            </div>
+            <select id="catalogProductSelect" style="width:100%; margin-top:0.5rem;">
+              <option value="">— Select product to update (optional) —</option>
+            </select>
+            <div id="catalogTargetInfo" style="font-size:0.78rem; color:var(--text-muted,#57606a); margin-top:0.35rem;"></div>
           </div>
           <div class="btns" style="margin-top:0;">
             <button class="btn primary" id="workflowImportBtn" type="button">Generate From CSV</button>
@@ -988,6 +1044,8 @@
     const recoverySection = document.getElementById("recoverySection");
     const supportLogsSection = document.getElementById("supportLogsSection");
     const brandDisplayNameInput = document.getElementById("brandDisplayNameInput");
+    const brandDefaultLocationInput = document.getElementById("brandDefaultLocationInput");
+    const brandDefaultPushModeInput = document.getElementById("brandDefaultPushModeInput");
     const brandNameInput = document.getElementById("brandNameInput");
     const brandVendorInput = document.getElementById("brandVendorInput");
     const brandWebsiteInput = document.getElementById("brandWebsiteInput");
@@ -995,6 +1053,7 @@
     const brandProfileImageUrlInput = document.getElementById("brandProfileImageUrlInput");
     const brandProfileImagePreview = document.getElementById("brandProfileImagePreview");
     const brandPresetInput = document.getElementById("brandPresetInput");
+    const brandProductKindInput = document.getElementById("brandProductKindInput");
     const brandToneInput = document.getElementById("brandToneInput");
     const brandNotesInput = document.getElementById("brandNotesInput");
     const brandProfileSaveBtn = document.getElementById("brandProfileSaveBtn");
@@ -1038,6 +1097,8 @@
     const quickImageInput = document.getElementById("quickImageInput");
     const quickImageMeta = document.getElementById("quickImageMeta");
     const quickDescriptionInput = document.getElementById("quickDescriptionInput");
+    const quickPriceInput = document.getElementById("quickPriceInput");
+    const quickSkuInput = document.getElementById("quickSkuInput");
     const quickProductTypeInput = document.getElementById("quickProductTypeInput");
     const quickProductTypeList = document.getElementById("quickProductTypeList");
     const quickNewProductTypeInput = document.getElementById("quickNewProductTypeInput");
@@ -1063,6 +1124,13 @@
     const workflowCsvFile = document.getElementById("workflowCsvFile");
     const workflowImageRoot = document.getElementById("workflowImageRoot");
     const workflowLiveConfirm = document.getElementById("workflowLiveConfirm");
+    const workflowLocationSelect = document.getElementById("workflowLocationSelect");
+    const workflowPushModeSelect = document.getElementById("workflowPushModeSelect");
+    const catalogTargetRow = document.getElementById("catalogTargetRow");
+    const catalogSearchInput = document.getElementById("catalogSearchInput");
+    const catalogSearchBtn = document.getElementById("catalogSearchBtn");
+    const catalogProductSelect = document.getElementById("catalogProductSelect");
+    const catalogTargetInfo = document.getElementById("catalogTargetInfo");
     const workflowImportBtn = document.getElementById("workflowImportBtn");
     const workflowPushDryBtn = document.getElementById("workflowPushDryBtn");
     const workflowPushLiveBtn = document.getElementById("workflowPushLiveBtn");
@@ -1127,7 +1195,16 @@
 
     // Returns a Promise that resolves true (proceed) or false (cancel).
     // Checks the SKU field in customCsvRow. If no SKU or no conflict, resolves true immediately.
+    // In "create" mode the check is always skipped — user has explicitly asked for a new listing.
     function checkSkuConflictBeforeProceed() {
+      const currentPushMode = String(
+        (workflowPushModeSelect && workflowPushModeSelect.value) ||
+        (latestBrandProfile && latestBrandProfile.defaultPushMode) ||
+        "update"
+      ).trim().toLowerCase();
+      // Create mode: always create new — skip SKU conflict check entirely
+      if (currentPushMode === "create") return Promise.resolve(true);
+
       const sku = String(customCsvRow && (customCsvRow.sku || customCsvRow.variant_sku) || "").trim();
       if (!sku) return Promise.resolve(true);
 
@@ -1137,11 +1214,21 @@
           if (!data.ok || !data.exists) return true; // no conflict, proceed
 
           const conflicts = Array.isArray(data.conflicts) ? data.conflicts : [];
+          const primaryConflict = conflicts[0] || {};
+          const filledFields = applyExistingListingGaps(primaryConflict);
           const detailLines = conflicts.map((c) =>
-            `SKU: ${c.sku}\nProduct: ${c.productTitle} (${c.productStatus})\nHandle: ${c.productHandle}`
+            `SKU: ${c.sku}\nProduct: ${c.productTitle} (${c.productStatus})\nHandle: ${c.productHandle}\nType: ${c.productType || "n/a"}\nPrice: ${c.price || "n/a"}`
           ).join("\n\n");
           skuModalBody.textContent = `A product with SKU "${sku}" already exists in your Shopify catalog. How would you like to proceed?`;
-          skuModalDetail.textContent = detailLines || `SKU: ${sku}`;
+          skuModalDetail.textContent = [
+            detailLines || `SKU: ${sku}`,
+            filledFields.length
+              ? `Filled blank reviewed fields from the existing listing: ${filledFields.join(", ")}. App-reviewed values were not overwritten.`
+              : "No blank reviewed fields were filled. App-reviewed values remain unchanged.",
+          ].filter(Boolean).join("\n\n");
+          quickCsvBuilderStatus.textContent = filledFields.length
+            ? `Existing SKU found. Filled blank fields from Shopify: ${filledFields.join(", ")}.`
+            : "Existing SKU found. No blank reviewed fields needed Shopify fallback data.";
 
           return new Promise((resolve) => {
             skuConflictModal.classList.add("open");
@@ -1294,6 +1381,8 @@
       if (signature !== uploadedImageSignature) {
         uploadedImageSignature = signature;
         uploadedImageRootCache = "";
+        // Clear persisted cache — new file set selected, old upload path no longer relevant.
+        try { localStorage.removeItem("uploadedImageRootCache"); } catch (_) {}
       }
       quickImageMeta.textContent = list.length
         ? `${describeImageFiles(list)} via ${sourceLabel}.`
@@ -1312,6 +1401,80 @@
       if (!customCsvHeaders.length) return "";
       const row = customCsvHeaders.map((header) => csvEscape(customCsvRow[header] || "")).join(",");
       return `${customCsvHeaders.map((header) => csvEscape(header)).join(",")}\n${row}\n`;
+    }
+
+    function isBlankCsvValue(value) {
+      return String(value === undefined || value === null ? "" : value).trim() === "";
+    }
+
+    function looksAutoGeneratedSku(value) {
+      const sku = String(value || "").trim();
+      return /^[0-9]{8}[-_][0-9]{6}$/.test(sku);
+    }
+
+    function extractExplicitSkuFromText(text) {
+      const upper = String(text || "").toUpperCase();
+      const match = upper.match(/\bSKU\s*[:#-]?\s*([A-Z0-9][A-Z0-9/_-]{2,})\b/);
+      return match ? String(match[1] || "").trim() : "";
+    }
+
+    function syncReviewedSkuFieldsFromInput() {
+      const explicitSku = extractExplicitSkuFromText(quickDescriptionInput.value || "");
+      const variantSku = String(customCsvRow.variant_sku || "").trim();
+      const currentSku = String(customCsvRow.sku || "").trim();
+      const bestSku = explicitSku || (!looksAutoGeneratedSku(variantSku) ? variantSku : "") || (!looksAutoGeneratedSku(currentSku) ? currentSku : "");
+      if (!bestSku) return false;
+      ensureCustomCsvHeader("sku");
+      ensureCustomCsvHeader("variant_sku");
+      if (!currentSku || looksAutoGeneratedSku(currentSku) || explicitSku) {
+        customCsvRow.sku = bestSku;
+      }
+      if (!variantSku || looksAutoGeneratedSku(variantSku) || explicitSku) {
+        customCsvRow.variant_sku = bestSku;
+      }
+      customCsvContent = buildCsvFromCustomState();
+      return true;
+    }
+
+    function ensureCustomCsvHeader(header) {
+      const key = String(header || "").trim();
+      if (!key || customCsvHeaders.includes(key)) return;
+      customCsvHeaders.push(key);
+    }
+
+    function setReviewedFieldIfBlank(field, value, filledFields) {
+      const key = String(field || "").trim();
+      const nextValue = String(value === undefined || value === null ? "" : value).trim();
+      if (!key || !nextValue) return;
+      ensureCustomCsvHeader(key);
+      if (!isBlankCsvValue(customCsvRow[key])) return;
+      customCsvRow[key] = nextValue;
+      filledFields.push(key);
+    }
+
+    function applyExistingListingGaps(conflict) {
+      const c = conflict && typeof conflict === "object" ? conflict : {};
+      const filledFields = [];
+      setReviewedFieldIfBlank("title", c.productTitle, filledFields);
+      setReviewedFieldIfBlank("product_title", c.productTitle, filledFields);
+      setReviewedFieldIfBlank("handle", c.productHandle, filledFields);
+      setReviewedFieldIfBlank("product_type", c.productType, filledFields);
+      setReviewedFieldIfBlank("vendor", c.vendor, filledFields);
+      setReviewedFieldIfBlank("description", c.descriptionHtml, filledFields);
+      setReviewedFieldIfBlank("body_html", c.descriptionHtml, filledFields);
+      setReviewedFieldIfBlank("price", c.price, filledFields);
+      setReviewedFieldIfBlank("inventory", c.inventoryQuantity, filledFields);
+      if (Array.isArray(c.tags) && c.tags.length) {
+        setReviewedFieldIfBlank("tags", c.tags.join(", "), filledFields);
+      }
+      if (c.featuredImageUrl) {
+        setReviewedFieldIfBlank("source_notes", `Existing Shopify listing image: ${c.featuredImageUrl}`, filledFields);
+      }
+      if (filledFields.length) {
+        customCsvContent = buildCsvFromCustomState();
+        renderCustomCsvFields();
+      }
+      return filledFields;
     }
 
     function getCurrentRefreshContext() {
@@ -1514,6 +1677,7 @@
         `website: ${p.websiteUrl || "n/a"}`,
         `profile_image: ${p.profileImageUrl || "n/a"}`,
         `preset: ${p.preset || "n/a"}`,
+        `product_format: ${p.productKind || "physical"}`,
         `tone: ${p.tone || "n/a"}`,
         `updated: ${p.updatedAt || "n/a"}`,
       ].join("\n");
@@ -1551,6 +1715,100 @@
       brandWebsitePreview.textContent = `Open brand website reference (${href})`;
     }
 
+    async function loadLocations() {
+      try {
+        const res = await apiGet("/api/locations");
+        const data = await res.json();
+        if (!res.ok || !data.ok || !Array.isArray(data.locations)) return;
+        const locations = data.locations;
+        const selects = [brandDefaultLocationInput, workflowLocationSelect];
+        for (const sel of selects) {
+          const firstOpt = sel.options[0];
+          // Clear all but the placeholder
+          while (sel.options.length > 1) sel.remove(1);
+          for (const loc of locations) {
+            const opt = document.createElement("option");
+            opt.value = loc.id;
+            opt.textContent = loc.name + (loc.isPrimary ? " (primary)" : "");
+            sel.appendChild(opt);
+          }
+          // Restore pending selection from brand profile load
+          if (sel.dataset && sel.dataset.pendingId) {
+            sel.value = sel.dataset.pendingId;
+            delete sel.dataset.pendingId;
+          }
+        }
+        // Re-apply brand profile default if loaded before locations
+        if (latestBrandProfile && latestBrandProfile.defaultLocationId) {
+          brandDefaultLocationInput.value = latestBrandProfile.defaultLocationId;
+          workflowLocationSelect.value = latestBrandProfile.defaultLocationId;
+        }
+      } catch (_e) {
+        // Locations are optional; don't block the UI
+      }
+    }
+
+    // ── Catalog target picker ────────────────────────────────────────────────
+    // Loaded products from Shopify for the update/replace target selector.
+    let catalogProducts = [];
+
+    async function loadCatalogProducts(search) {
+      catalogTargetInfo.textContent = "Searching catalog…";
+      try {
+        const q = search ? `&search=${encodeURIComponent(search)}` : "";
+        const res = await apiGet(`/api/store/products?limit=60${q}`);
+        const data = await res.json();
+        const products = Array.isArray(data.products) ? data.products : [];
+        catalogProducts = products;
+
+        // Preserve current selection across refresh
+        const currentVal = catalogProductSelect.value;
+        while (catalogProductSelect.options.length > 1) catalogProductSelect.remove(1);
+        for (const p of products) {
+          const opt = document.createElement("option");
+          opt.value = p.id;
+          const skuTag = p.sku ? ` · ${p.sku}` : "";
+          opt.textContent = `${p.title}${skuTag} — ${p.status}`;
+          catalogProductSelect.appendChild(opt);
+        }
+        if (currentVal) catalogProductSelect.value = currentVal;
+        updateCatalogTargetInfo();
+        catalogTargetInfo.textContent = products.length
+          ? `${products.length} product${products.length !== 1 ? "s" : ""} loaded. Select the one to update.`
+          : "No products found. Try a different search term.";
+      } catch (e) {
+        catalogTargetInfo.textContent = `Catalog load failed: ${e.message}`;
+      }
+    }
+
+    function updateCatalogTargetInfo() {
+      const val = catalogProductSelect.value;
+      if (!val) {
+        catalogTargetInfo.textContent = "No target selected — auto-match by SKU will be used as fallback.";
+        return;
+      }
+      const p = catalogProducts.find((x) => x.id === val);
+      if (p) {
+        catalogTargetInfo.textContent = `Selected: "${p.title}"${p.sku ? ` · SKU: ${p.sku}` : ""} · ${p.status} · ID: ${p.id.replace("gid://shopify/Product/", "")}`;
+      }
+    }
+
+    function syncCatalogPickerVisibility() {
+      const mode = String(workflowPushModeSelect.value || "update").toLowerCase();
+      if (mode === "create") {
+        catalogTargetRow.style.display = "none";
+        catalogProductSelect.value = "";
+        catalogTargetInfo.textContent = "";
+      } else {
+        catalogTargetRow.style.display = "";
+        // Auto-load if empty
+        if (catalogProductSelect.options.length <= 1) {
+          loadCatalogProducts("");
+        }
+      }
+    }
+    // ── End catalog target picker ────────────────────────────────────────────
+
     async function loadBrandProfile() {
       try {
         const res = await apiGet("/api/brand-profile/latest");
@@ -1566,8 +1824,19 @@
         brandWebsiteInput.value = p.websiteUrl || "";
         brandProfileImageUrlInput.value = p.profileImageUrl || "";
         brandPresetInput.value = p.preset || "";
+        brandProductKindInput.value = p.productKind || "physical";
         brandToneInput.value = p.tone || "";
         brandNotesInput.value = p.notes || "";
+        if (p.defaultLocationId) {
+          brandDefaultLocationInput.value = p.defaultLocationId;
+          if (!brandDefaultLocationInput.value) {
+            // Option not present yet — will be selected after locations load
+            brandDefaultLocationInput.dataset.pendingId = p.defaultLocationId;
+          }
+        }
+        if (p.defaultPushMode) {
+          brandDefaultPushModeInput.value = p.defaultPushMode;
+        }
         renderBrandWebsitePreview(p.websiteUrl || "");
         renderBrandProfileImagePreview(p.profileImageUrl || "");
         brandProfileStatus.textContent = summarizeBrandProfile(latestBrandProfile);
@@ -1586,8 +1855,12 @@
           websiteUrl: normalizeWebsiteUrl(brandWebsiteInput.value || ""),
           profileImageUrl: String(brandProfileImageUrlInput.value || "").trim(),
           preset: String(brandPresetInput.value || "").trim(),
+          productKind: String(brandProductKindInput.value || "physical").trim(),
           tone: String(brandToneInput.value || "").trim(),
           notes: String(brandNotesInput.value || "").trim(),
+          defaultLocationId: String(brandDefaultLocationInput.value || "").trim(),
+          defaultLocationName: String((brandDefaultLocationInput.selectedOptions[0] && brandDefaultLocationInput.selectedOptions[0].text !== "\u2014 Select a location \u2014" ? brandDefaultLocationInput.selectedOptions[0].text : "") || "").trim(),
+          defaultPushMode: String(brandDefaultPushModeInput.value || "update").trim(),
         };
         const res = await apiPost("/api/brand-profile/save", payload);
         const data = await res.json();
@@ -1630,6 +1903,27 @@
           customCsvHeaders = data.template.headers.map((x) => String(x || "").trim()).filter(Boolean);
         }
         customCsvRow = data.template.row && typeof data.template.row === "object" ? { ...data.template.row } : customCsvRow;
+        // Re-apply explicit price/SKU values from the dedicated UI inputs.
+        // autofill replaces the whole row object — user-entered values must win.
+        const uiPriceRaw = String(quickPriceInput.value || "").trim().replace(/[^0-9.]/g, "");
+        const uiSkuRaw = String(quickSkuInput.value || "").trim().toUpperCase();
+        if (uiPriceRaw) {
+          customCsvRow.price = uiPriceRaw;
+          if (Object.prototype.hasOwnProperty.call(customCsvRow, "variant_price")) {
+            customCsvRow.variant_price = uiPriceRaw;
+          }
+        }
+        if (uiSkuRaw) {
+          customCsvRow.sku = uiSkuRaw;
+          if (Object.prototype.hasOwnProperty.call(customCsvRow, "variant_sku")) {
+            customCsvRow.variant_sku = uiSkuRaw;
+          }
+          // sku_values is used by the import pipeline for per-variant SKUs;
+          // when the user explicitly enters a single SKU it must win over AI-generated sku_values.
+          if (Object.prototype.hasOwnProperty.call(customCsvRow, "sku_values")) {
+            customCsvRow.sku_values = uiSkuRaw;
+          }
+        }
         customCsvContent = String(data.template.csvContent || buildCsvFromCustomState());
         setGeneratedPrompt(data.template.generationPrompt || "");
         if (data.template.suggestedProductType) {
@@ -1740,7 +2034,32 @@
 
         customCsvHeaders = Array.isArray(data.template.headers) ? data.template.headers : [];
         customCsvRow = data.template.row && typeof data.template.row === "object" ? { ...data.template.row } : {};
-        customCsvContent = String(data.template.csvContent || "");
+        // Stamp the actual upload folder into image_folder so the path survives page reloads
+        // and doesn't rely on a correct imageRoot being passed to the import endpoint.
+        if (imageRoot) {
+          customCsvRow.image_folder = imageRoot;
+          if (!customCsvHeaders.includes("image_folder")) customCsvHeaders.push("image_folder");
+        }
+        // Re-apply explicit price/SKU from dedicated UI inputs — server doesn't know about
+        // values entered in those fields (they're not part of shortDescription).
+        const uiPriceGenRaw = String(quickPriceInput.value || "").trim().replace(/[^0-9.]/g, "");
+        const uiSkuGenRaw = String(quickSkuInput.value || "").trim().toUpperCase();
+        if (uiPriceGenRaw) {
+          customCsvRow.price = uiPriceGenRaw;
+          if (Object.prototype.hasOwnProperty.call(customCsvRow, "variant_price")) {
+            customCsvRow.variant_price = uiPriceGenRaw;
+          }
+        }
+        if (uiSkuGenRaw) {
+          customCsvRow.sku = uiSkuGenRaw;
+          if (Object.prototype.hasOwnProperty.call(customCsvRow, "variant_sku")) {
+            customCsvRow.variant_sku = uiSkuGenRaw;
+          }
+          if (Object.prototype.hasOwnProperty.call(customCsvRow, "sku_values")) {
+            customCsvRow.sku_values = uiSkuGenRaw;
+          }
+        }
+        customCsvContent = buildCsvFromCustomState();
         customCsvUserEditedFields.clear();
         setGeneratedPrompt(data.template.generationPrompt || "");
         latestSuggestedProductType = String(data.template.suggestedProductType || "");
@@ -1850,11 +2169,12 @@
     }
 
     function useCustomCsvForImport() {
-      const content = customCsvContent || buildCsvFromCustomState();
+      const content = buildCsvFromCustomState();
       if (!content) {
         quickCsvBuilderStatus.textContent = "No custom CSV available. Generate one first.";
         return;
       }
+      customCsvContent = content;
       const file = new File([content], `custom-intake-${Date.now()}.csv`, { type: "text/csv" });
       setSelectedCsvFile(file, "custom csv builder");
       setCategoryCheckStatus(String(customCsvRow.product_type || quickProductTypeInput.value || ""));
@@ -1873,14 +2193,24 @@
           return;
         }
 
-        await autofillMissingReviewedFields();
-
-        // SKU conflict check before creating the listing
-        const proceed = await checkSkuConflictBeforeProceed();
-        if (!proceed) {
-          quickStatus.textContent = "Cancelled. Your reviewed fields are still here — edit any field and try again.";
+        // Always prompt — regardless of whether a previous generation just completed.
+        // This lets the user generate a new listing from the same reviewed data without
+        // having to change any fields first.
+        const shouldPushLive = window.confirm("Generate a new Shopify draft listing from your reviewed fields and push it live now?\n\nClick OK to create a new draft, or Cancel to keep your work.");
+        if (!shouldPushLive) {
+          quickStatus.textContent = "Cancelled before live push. Your reviewed fields are preserved.";
           return;
         }
+
+        quickStatus.textContent = "Preparing reviewed fields for Shopify import...";
+        await autofillMissingReviewedFields();
+        if (syncReviewedSkuFieldsFromInput()) {
+          renderCustomCsvFields();
+        }
+
+        // Silently fill any blank reviewed fields from the existing Shopify product (if SKU exists),
+        // then always proceed — the user already confirmed they want a new listing above.
+        await enrichReviewedFieldsFromExistingSku();
 
         useCustomCsvForImport();
         if (!getSelectedCsvFile()) {
@@ -1889,14 +2219,30 @@
         }
 
         await sendProductTypeFeedback(String(customCsvRow.product_type || quickProductTypeInput.value || ""));
-        const shouldPushLive = window.confirm("Generate from reviewed fields and push live Shopify draft(s) now? Click Cancel to keep your work and stop before live push.");
-        if (!shouldPushLive) {
-          quickStatus.textContent = "Cancelled before live push. Your reviewed fields are preserved.";
-          return;
-        }
+        quickStatus.textContent = "Importing reviewed CSV and pushing to Shopify...";
         await runWorkflowImport("quick-reviewed-live");
       } finally {
         quickGenerateFromReviewedBtn.disabled = false;
+      }
+    }
+
+    // Silently enrich blank reviewed fields from an existing Shopify product with the same SKU.
+    // Unlike checkSkuConflictBeforeProceed, this never blocks — it just fills gaps and returns.
+    async function enrichReviewedFieldsFromExistingSku() {
+      const sku = String(customCsvRow && (customCsvRow.sku || customCsvRow.variant_sku) || "").trim();
+      if (!sku) return;
+      try {
+        const res = await apiGet(`/api/store/sku-check?sku=${encodeURIComponent(sku)}`);
+        const data = await res.json();
+        if (!data.ok || !data.exists) return;
+        const conflicts = Array.isArray(data.conflicts) ? data.conflicts : [];
+        if (!conflicts.length) return;
+        const filledFields = applyExistingListingGaps(conflicts[0]);
+        if (filledFields.length) {
+          quickCsvBuilderStatus.textContent = `Filled ${filledFields.length} blank field(s) from existing Shopify product: ${filledFields.join(", ")}.`;
+        }
+      } catch {
+        // Network error — proceed without enrichment, don't block the user
       }
     }
 
@@ -1934,7 +2280,11 @@
 
     async function uploadSelectedImagesIfAny() {
       if (!selectedImageFiles.length) {
-        return "";
+        // No files currently selected — check for a previously uploaded session folder.
+        // This handles the page-reload case where files are gone from memory but the
+        // server-side folder still exists.
+        const savedRoot = (() => { try { return localStorage.getItem("uploadedImageRootCache") || ""; } catch (_) { return ""; } })();
+        return savedRoot;
       }
 
       if (uploadedImageRootCache && uploadedImageSignature) {
@@ -1959,6 +2309,8 @@
         throw new Error(data.error || "Image upload failed.");
       }
       uploadedImageRootCache = String(data.imageRoot || "").trim();
+      // Persist so the path survives a page reload (server-side folder remains on disk).
+      try { if (uploadedImageRootCache) localStorage.setItem("uploadedImageRootCache", uploadedImageRootCache); } catch (_) {}
       return uploadedImageRootCache;
     }
 
@@ -2746,10 +3098,16 @@
       try {
         let importResult = null;
         const csvContent = await activeCsv.text();
-        const shortDescription = String(quickDescriptionInput.value || "").trim().slice(0, 240);
+        const shortDescription = String(quickDescriptionInput.value || "").trim();
         const autoApplyTaxonomyFromSimilar = Boolean(quickTaxonomyAutoToggle.checked);
         const uploadedImageRoot = await uploadSelectedImagesIfAny();
-        const imageRoot = uploadedImageRoot || String(workflowImageRoot.value || "assets/products").trim() || "assets/products";
+        // If the reviewed CSV already has a full relative image folder path baked in
+        // (set at template generation time), use "." as imageRoot to avoid double-prepending.
+        const csvImageFolder = String(customCsvRow && customCsvRow.image_folder || "").trim();
+        const csvHasFullPath = csvImageFolder && csvImageFolder !== "." && csvImageFolder.includes("/");
+        const imageRoot = csvHasFullPath
+          ? "."
+          : (uploadedImageRoot || String(workflowImageRoot.value || "assets/products").trim() || "assets/products");
         const payload = {
           csvContent,
           imageRoot,
@@ -2786,11 +3144,14 @@
           const pushPayload = {
             mode: "dry",
             outputPath: String(importResult.outputPath || "").trim(),
+            locationId: String((latestBrandProfile && latestBrandProfile.defaultLocationId) || "").trim(),
+            pushMode: String((latestBrandProfile && latestBrandProfile.defaultPushMode) || "update").trim(),
+            targetProductId: String(catalogProductSelect.value || "").trim(),
           };
           const pushRes = await apiPost("/api/workflow/push", pushPayload);
           const pushData = await pushRes.json();
           if (!pushRes.ok || !pushData.ok) {
-            throw new Error(pushData.error || "Draft push failed after import.");
+            throw new Error(pushData.stderr || pushData.error || "Draft push failed after import.");
           }
           workflowStatus.textContent = summarizeWorkflowOutput(
             "Generate/import completed and dry-run push validated (no Shopify draft created).",
@@ -2802,11 +3163,14 @@
             mode: "live",
             outputPath: String(importResult.outputPath || "").trim(),
             liveConfirm: "LIVE",
+            locationId: String((latestBrandProfile && latestBrandProfile.defaultLocationId) || "").trim(),
+            pushMode: String((latestBrandProfile && latestBrandProfile.defaultPushMode) || "update").trim(),
+            targetProductId: String(catalogProductSelect.value || "").trim(),
           };
           const pushRes = await apiPost("/api/workflow/push", pushPayload);
           const pushData = await pushRes.json();
           if (!pushRes.ok || !pushData.ok) {
-            throw new Error(pushData.error || "Live push failed after reviewed import.");
+            throw new Error(pushData.stderr || pushData.error || "Live push failed after reviewed import.");
           }
           workflowStatus.textContent = summarizeWorkflowOutput(
             "Generate/import completed and live push created Shopify draft(s).",
@@ -2847,6 +3211,9 @@
           mode,
           outputPath: latestWorkflow && latestWorkflow.latestOutputPath ? latestWorkflow.latestOutputPath : "",
           liveConfirm,
+          locationId: String(workflowLocationSelect.value || (latestBrandProfile && latestBrandProfile.defaultLocationId) || "").trim(),
+          pushMode: String(workflowPushModeSelect.value || (latestBrandProfile && latestBrandProfile.defaultPushMode) || "update").trim(),
+          targetProductId: String(catalogProductSelect.value || "").trim(),
         };
 
         if (workflowAsyncToggle.checked) {
@@ -3024,6 +3391,37 @@
       scheduleAutoTemplateGeneration("description-edit");
     });
 
+    quickPriceInput.addEventListener("input", () => {
+      const v = String(quickPriceInput.value || "").trim().replace(/[^0-9.]/g, "");
+      if (!customCsvRow) return;
+      if (v) {
+        ensureCustomCsvHeader("price");
+        customCsvRow.price = v;
+        if (Object.prototype.hasOwnProperty.call(customCsvRow, "variant_price")) {
+          customCsvRow.variant_price = v;
+        }
+      } else {
+        customCsvRow.price = "";
+        if (Object.prototype.hasOwnProperty.call(customCsvRow, "variant_price")) {
+          customCsvRow.variant_price = "";
+        }
+      }
+      customCsvContent = buildCsvFromCustomState();
+      renderCustomCsvFields();
+    });
+
+    quickSkuInput.addEventListener("input", () => {
+      const v = String(quickSkuInput.value || "").trim().toUpperCase();
+      if (!customCsvRow) return;
+      ensureCustomCsvHeader("sku");
+      customCsvRow.sku = v;
+      if (Object.prototype.hasOwnProperty.call(customCsvRow, "variant_sku")) {
+        customCsvRow.variant_sku = v;
+      }
+      customCsvContent = buildCsvFromCustomState();
+      renderCustomCsvFields();
+    });
+
     quickDescriptionInput.addEventListener("blur", async () => {
       const currentValue = String(quickDescriptionInput.value || "").trim();
       if (!currentValue) {
@@ -3155,9 +3553,21 @@
     inboxRefreshBtn.addEventListener("click", loadFailedInbox);
     attentionRefreshBtn.addEventListener("click", loadAttentionLatest);
 
+    // Catalog target picker event wiring
+    workflowPushModeSelect.addEventListener("change", syncCatalogPickerVisibility);
+    catalogSearchBtn.addEventListener("click", () => loadCatalogProducts(catalogSearchInput.value.trim()));
+    catalogSearchInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") loadCatalogProducts(catalogSearchInput.value.trim());
+    });
+    catalogProductSelect.addEventListener("change", updateCatalogTargetInfo);
+    // Show picker immediately if default mode is update/replace
+    syncCatalogPickerVisibility();
+
+
     loadAuthConfig();
     loadProductTypes();
     loadBrandProfile();
+    loadLocations();
     loadTokenSummaries();
     loadBootstrapState();
     loadOnboardingLatest();

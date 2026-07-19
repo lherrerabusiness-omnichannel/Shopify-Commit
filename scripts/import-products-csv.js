@@ -10,6 +10,7 @@ const KNOWN_PRODUCT_CODES = new Set([
   "A19", "A21", "B11", "B10", "T8", "T10", "BR30", "BR40",
 ]);
 const PRODUCT_CODE_RE = /^[A-Z][A-Z0-9]*[0-9][A-Z0-9]*(?:[/.][A-Z0-9]{1,6})?$/;
+const STRUCTURED_CODE_RE = /^(?=.{3,32}$)(?=.*[0-9])[A-Z0-9]+(?:[-_/][A-Z0-9]+)+$/;
 
 function normalizeTitleCase(str) {
   if (!String(str || "").trim()) return str;
@@ -17,6 +18,7 @@ function normalizeTitleCase(str) {
     const upper = word.toUpperCase();
     if (KNOWN_PRODUCT_CODES.has(upper)) return upper;
     if (PRODUCT_CODE_RE.test(upper) && word.length <= 8) return upper;
+    if (STRUCTURED_CODE_RE.test(upper)) return upper;
     return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
   });
 }
@@ -267,12 +269,36 @@ function toInteger(value) {
   return Number.isNaN(n) ? undefined : n;
 }
 
+function normalizeProductKind(value) {
+  const raw = normalizeText(value).toLowerCase();
+  if (["digital", "digital_product", "download", "service"].includes(raw)) return "digital";
+  return "physical";
+}
+
 function toPriceString(value) {
   const v = normalizeText(value);
   if (!v) return "";
   const n = Number.parseFloat(v.replace(/[^0-9.]/g, ""));
   if (Number.isNaN(n)) return "";
   return n.toFixed(2);
+}
+
+// Formats a price as a whole-dollar integer with no decimal point or currency
+// punctuation, for use as a SKU-linked tag suffix on multi-price-point offer
+// listings (e.g. "ISL-WL-123-20" for a $20 offer). Punctuation like "." or ","
+// is avoided so exports/reports/filters in spreadsheet tools don't split or
+// misread the tag. Cents are rounded to the nearest whole dollar; if the price
+// actually has cents, `rounded` is true so callers can warn instead of silently
+// losing precision in the tag (the real price/compareAtPrice fields are never
+// affected by this — this only formats the tag suffix).
+function formatPriceTag(value) {
+  const n = Number.parseFloat(String(value ?? "").replace(/[^0-9.]/g, ""));
+  if (!Number.isFinite(n) || n < 0) return { tag: "", rounded: false };
+  const wholeDollars = Math.round(n);
+  return {
+    tag: String(wholeDollars),
+    rounded: Math.abs(n - wholeDollars) > 0.001,
+  };
 }
 
 function csvEscape(value) {
@@ -374,6 +400,7 @@ function loadBrandProfile(filePath) {
       default_product_type: normalizeText(row.default_product_type),
       default_price: normalizeText(row.default_price),
       default_tags: splitPipeList(row.default_tags),
+      default_location_name: normalizeText(row.default_location_name),
     },
   };
 }
@@ -795,6 +822,13 @@ function validateMetafieldValue(definition, serialized) {
   }
 
   switch (typeName) {
+    case "rich_text_field":
+      try {
+        JSON.parse(value);
+        return null;
+      } catch {
+        return `expects rich text JSON value for ${normalizeText(definition.namespace)}.${normalizeText(definition.key)}`;
+      }
     case "boolean": {
       const normalized = value.toLowerCase();
       if (!["true", "false", "yes", "no", "1", "0"].includes(normalized)) {
@@ -815,9 +849,30 @@ function validateMetafieldValue(definition, serialized) {
         if (!(value.startsWith("[") && value.endsWith("]"))) {
           return `expects JSON array value for ${normalizeText(definition.namespace)}.${normalizeText(definition.key)}`;
         }
+        if (typeName.includes("reference")) {
+          try {
+            const parsed = JSON.parse(value);
+            const items = Array.isArray(parsed) ? parsed : [];
+            const allGids = items.length > 0 && items.every((item) => /^gid:\/\/shopify\//.test(String(item || "")));
+            return allGids
+              ? null
+              : `expects Shopify GID reference values for ${normalizeText(definition.namespace)}.${normalizeText(definition.key)}`;
+          } catch {
+            return `expects JSON array value for ${normalizeText(definition.namespace)}.${normalizeText(definition.key)}`;
+          }
+        }
       }
       return null;
   }
+}
+
+function isSafeGeneratedMetafieldDefinition(definition) {
+  const typeName = getDefinitionType(definition);
+  const namespace = normalizeText(definition?.namespace);
+  if (!namespace || namespace === "shopify" || namespace.startsWith("shopify--") || namespace === "reviews") return false;
+  if (typeName.includes("reference")) return false;
+  if (typeName === "rich_text_field") return false;
+  return true;
 }
 
 function parseMetafieldsJson(rawValue, schema) {
@@ -945,7 +1000,11 @@ function buildDynamicMetafields(row, schema, reservedKeys) {
     const candidateHeaders = [
       `${namespace}.${key}`.toLowerCase(),
       `${namespace}_${key}`.toLowerCase(),
+      normalizeComparable(def.name || ""),
+      normalizeComparable(def.name || "").replace(/\s+/g, "_"),
       key.toLowerCase(),
+      normalizeComparable(key),
+      normalizeComparable(key).replace(/\s+/g, "_"),
     ];
 
     let value = "";
@@ -1028,7 +1087,9 @@ function scoreDefinitionAgainstAliases(definition, aliases) {
 }
 
 function autoMapGeneratedMetafields(schema, existingMetafields, generatedFields) {
-  const definitions = Array.isArray(schema?.productDefinitions) ? schema.productDefinitions : [];
+  const definitions = Array.isArray(schema?.productDefinitions)
+    ? schema.productDefinitions.filter(isSafeGeneratedMetafieldDefinition)
+    : [];
   if (!definitions.length) return [];
 
   const existingIds = new Set((existingMetafields || []).map((item) => `${item.namespace}.${item.key}`.toLowerCase()));
@@ -1169,6 +1230,7 @@ function applyAlwaysUseDefaults(group, template, brandProfile, rules) {
     appliedFallbacks: Array.from(new Set(applied)),
     templateKey: template?.template_key || "",
     brandProfile: useBrandProfile ? (brand?.profile_name || "default") : "",
+    defaultLocationName: useBrandProfile ? normalizeText(brand?.default_location_name) : "",
   };
 }
 
@@ -1444,6 +1506,13 @@ function resolveImageSet(imageRoot, imageFolder, rules) {
     heroImage: hero.relative,
     imageConfidence: hero.score,
     imageCandidates: scored.map((x) => x.relative),
+    imageRanking: scored.map((x, index) => ({
+      rank: index + 1,
+      path: x.relative,
+      score: x.score,
+      width: x.meta.width,
+      height: x.meta.height,
+    })),
     issue: hero.score < 60 ? "Low-confidence hero image selection" : "",
     imageAttention,
   };
@@ -1538,21 +1607,45 @@ function buildTitle(sourceTitle, specs) {
   return normalizeTitleCase(parts.join(" "));
 }
 
-function buildDescription(shortDescription, specs, vendor, keyFeatures = []) {
-  const intro = normalizeText(shortDescription)
-    || "Draft description generated from import data. Verify specifications before publishing.";
+function cleanRawIntakeForListing(value) {
+  let text = normalizeText(value);
+  if (!text) return "";
+  text = text
+    .replace(/\b(?:can you|please|i need|we need|i want|we want|make|create|generate|add|build)\b[^.]{0,40}\b(?:listing|product listing|shopify listing)\b/ig, " ")
+    .replace(/\b(?:this listing is for|listing is for|this is for|product is for)\b/ig, " ")
+    .replace(/\b(?:use this|here is|the user said|customer said|seller said)\b[:\s-]*/ig, " ")
+    .replace(/\bSKU\s*[:#-]?\s*[A-Z0-9][A-Z0-9/_-]{2,}\b/ig, " ")
+    // Strip bare product codes / model numbers (e.g. WLC-L-KIT-5WLED-2) that contain
+    // uppercase-hyphenated segments with digits — not useful in a description summary.
+    .replace(/\b[A-Z]{2,5}(?:-[A-Z0-9]{1,8}){2,}\b/g, " ")
+    .replace(/\bprice\s*[:=-]?\s*\$?\s*[0-9]+(?:\.[0-9]{1,2})?\b/ig, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return text.replace(/^[,.;:\-\s]+|[,.;:\-\s]+$/g, "").slice(0, 420).trim();
+}
 
-  // Build a keyword-rich secondary sentence from specs
+function formatWattage(value) {
+  const text = normalizeText(value);
+  if (!text) return "";
+  return /w$/i.test(text) ? text.toUpperCase() : `${text}W`;
+}
+
+function buildDescription(shortDescription, specs, vendor, keyFeatures = [], productType = "") {
   const highlightParts = [
     specs.base_type ? `${specs.base_type} base` : "",
-    specs.wattage ? `${specs.wattage}W` : "",
+    specs.wattage ? formatWattage(specs.wattage) : "",
     specs.voltage ? `${specs.voltage}` : "",
     specs.color_temp ? `${specs.color_temp}` : "",
     specs.lumen_output ? `${specs.lumen_output} lumens` : "",
   ].filter(Boolean);
 
+  const productLabel = normalizeText(productType) || "Lighting product";
+  const intro = highlightParts.length
+    ? `${vendor ? `${vendor} ` : ""}${productLabel} with ${highlightParts.join(", ")}.`
+    : (cleanRawIntakeForListing(shortDescription) || "Draft description generated from import data. Verify specifications before publishing.");
+
   const vendorLine = vendor ? ` ${vendor}.` : "";
-  const highlightLine = highlightParts.length ? ` Features: ${highlightParts.join(", ")}.${vendorLine}` : vendorLine;
+  const highlightLine = highlightParts.length ? vendorLine : "";
 
   const lines = [];
   if (specs.bulb_shape) lines.push(`<li>Bulb shape: ${specs.bulb_shape}</li>`);
@@ -1579,22 +1672,22 @@ function buildDescription(shortDescription, specs, vendor, keyFeatures = []) {
 
 function buildSeo(title, shortDescription, specs) {
   // Build a keyword-rich SEO title: product title + key specs
-  const seoKeywords = [specs.base_type, specs.color_temp, specs.wattage ? `${specs.wattage}W` : "", specs.voltage].filter(Boolean);
+  const seoKeywords = [specs.base_type, specs.color_temp, specs.wattage ? formatWattage(specs.wattage) : "", specs.voltage].filter(Boolean);
   const seoTitle = [title, ...seoKeywords].join(" ").slice(0, 70);
 
   // SEO description: use the premium shortDescription as primary, pad with specs
   const specSummary = [
     specs.base_type ? `Base: ${specs.base_type}` : "",
     specs.voltage ? `${specs.voltage}` : "",
-    specs.wattage ? `${specs.wattage}W` : "",
+    specs.wattage ? formatWattage(specs.wattage) : "",
     specs.color_temp ? `${specs.color_temp}` : "",
     specs.lumen_output ? `${specs.lumen_output} lm` : "",
   ].filter(Boolean).join(", ");
 
-  const descBase = normalizeText(shortDescription) || title;
+  const seoBase = title || "Lighting product";
   const seoDescription = specSummary
-    ? `${descBase}. ${specSummary}.`.slice(0, 155)
-    : descBase.slice(0, 155);
+    ? `${seoBase}. ${specSummary}.`.slice(0, 155)
+    : seoBase.slice(0, 155);
 
   return {
     title: seoTitle || title.slice(0, 70),
@@ -1651,9 +1744,9 @@ function buildVariantsFromRow(row, rowNumber, optionNames) {
     return {
       variants: [{
         optionValues: optionColumns.map((o) => o.value).filter(Boolean),
-        price: toPriceString(row.price),
-        sku: normalizeText(row.sku),
-        inventoryQuantity: toInteger(row.inventory),
+        price: toPriceString(row.price || row.variant_price),
+        sku: normalizeText(row.sku || row.variant_sku),
+        inventoryQuantity: toInteger(row.inventory) ?? 0,
       }],
       issues: [],
     };
@@ -1686,15 +1779,18 @@ function buildVariantsFromRow(row, rowNumber, optionNames) {
       if (value) optionValues.push(value);
     }
 
-    const sku = skuValues.length ? normalizeText(skuValues[index]) : normalizeText(row.sku);
-    const priceRaw = priceValues.length ? normalizeText(priceValues[index]) : normalizeText(row.price);
+    // variant_sku (explicit per-product SKU field) always wins over sku_values expansion.
+    // sku_values is intended for multi-variant per-row SKU lists only.
+    const explicitSku = normalizeText(row.variant_sku || row.sku);
+    const sku = explicitSku || (skuValues.length ? normalizeText(skuValues[index]) : "");
+    const priceRaw = priceValues.length ? normalizeText(priceValues[index]) : normalizeText(row.price || row.variant_price);
     const inventoryRaw = inventoryValues.length ? normalizeText(inventoryValues[index]) : normalizeText(row.inventory);
 
     variants.push({
       optionValues,
       price: toPriceString(priceRaw),
       sku,
-      inventoryQuantity: toInteger(inventoryRaw),
+      inventoryQuantity: toInteger(inventoryRaw) ?? 0,
     });
   }
 
@@ -1839,9 +1935,13 @@ function convertRows(rows, options) {
     "price",
     "price_values",
     "sku",
+    "variant_sku",
     "sku_values",
     "inventory",
+    "variant_price",
     "inventory_values",
+    "product_kind",
+    "product_profile",
     "image_folder",
     "source_notes",
     "use_brand_profile",
@@ -1867,6 +1967,7 @@ function convertRows(rows, options) {
         handle: "",
         status: "DRAFT",
         imageFolder: "",
+        productKind: "physical",
         notes: "",
         tags: new Set(),
         issues: new Set(),
@@ -1907,6 +2008,9 @@ function convertRows(rows, options) {
     group.productType = group.productType || normalizeText(row.product_type);
     group.handle = group.handle || normalizeText(row.handle);
     group.imageFolder = group.imageFolder || normalizeText(row.image_folder);
+    if (normalizeText(row.product_kind || row.product_profile)) {
+      group.productKind = normalizeProductKind(row.product_kind || row.product_profile);
+    }
     group.notes = group.notes || normalizeText(row.source_notes);
     group.useBrandProfileRaw = group.useBrandProfileRaw || normalizeText(row.use_brand_profile);
 
@@ -2006,7 +2110,7 @@ function convertRows(rows, options) {
     const categoryProfile = getCategoryProfile(productType, options.rules);
 
     const title = buildTitle(group.sourceTitle, group.specs);
-    const descriptionHtml = buildDescription(group.shortDescription, group.specs, group.vendor, group.keyFeatures);
+    const descriptionHtml = buildDescription(group.shortDescription, group.specs, group.vendor, group.keyFeatures, productType);
     const seo = buildSeo(title, group.shortDescription, group.specs);
     const confidence = scoreConfidence(group, requiredSpecFields);
     const missingSpecs = evaluateRequiredFields(group, group.specs, categoryProfile);
@@ -2158,10 +2262,12 @@ function convertRows(rows, options) {
       source: {
         groupId: group.groupId,
         imageFolder: group.imageFolder || "",
+        productKind: group.productKind || "physical",
         imageCount: imageSet.imageCount,
         heroImage: imageSet.heroImage,
         imageConfidence: imageSet.imageConfidence,
         imageCandidates: imageSet.imageCandidates,
+        imageRanking: imageSet.imageRanking || [],
         imageAttention: imageSet.imageAttention || [],
         notes: group.notes || "",
         confidence,
@@ -2184,6 +2290,7 @@ function convertRows(rows, options) {
         brandProfile: defaults.brandProfile,
         templateKey: defaults.templateKey,
         appliedFallbacks: defaults.appliedFallbacks,
+        defaultLocationName: defaults.defaultLocationName || "",
       },
     };
 
@@ -2208,7 +2315,9 @@ function convertRows(rows, options) {
       template_key: defaults.templateKey,
       applied_fallbacks: defaults.appliedFallbacks.join("|"),
       image_folder: group.imageFolder || "",
+      product_kind: group.productKind || "physical",
       image_count: imageSet.imageCount,
+      inventory_sample: group.variants?.[0]?.inventoryQuantity ?? 0,
       hero_image: imageSet.heroImage,
       image_confidence: imageSet.imageConfidence,
       image_attention: (imageSet.imageAttention || []).map((x) => x.code).join("|"),
@@ -2265,7 +2374,9 @@ function writeReportCsv(filePath, rows) {
     "template_key",
     "applied_fallbacks",
     "image_folder",
+    "product_kind",
     "image_count",
+    "inventory_sample",
     "hero_image",
     "image_confidence",
     "image_attention",
