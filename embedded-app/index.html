@@ -3301,7 +3301,11 @@
         return;
       }
       const next = `/auth/start?shop=${encodeURIComponent(shop)}`;
-      window.location.assign(next);
+      if (window.top && window.top !== window) {
+        window.top.location.assign(next);
+      } else {
+        window.location.assign(next);
+      }
     });
 
     quickDropzone.addEventListener("dragover", (event) => {
