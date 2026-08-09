@@ -1,10 +1,10 @@
 {
   "version": 1,
-  "generatedAt": "2026-05-24T20:39:58.340Z",
+  "generatedAt": "2026-08-08T22:24:09.338Z",
   "source": {
     "store": "ironsmith-lighting.myshopify.com",
     "apiVersion": "2025-10",
-    "schemaGeneratedAt": "2026-04-29T03:23:44.237Z",
+    "schemaGeneratedAt": "2026-08-08T22:24:09.273Z",
     "schemaPath": "data/shopify-metafields.product.json",
     "rulesPath": "config/store-rules.json"
   },
@@ -20,6 +20,7 @@
     "Automotive LED Bulb",
     "Automotive LED Light",
     "Ballast",
+    "Brass Spotlight Bundle Kit",
     "Cabinet Light",
     "Ceiling Fan",
     "Ceiling Fan Control",
@@ -54,6 +55,7 @@
     "Indoor Hanging Light",
     "Indoor Wall Light",
     "Indoor Wall Lights",
+    "Landscape Lighting Kit",
     "Landscape Lighting Transformer",
     "Landscape Transformers",
     "LED bulb",
@@ -74,6 +76,7 @@
     "PAR36 Light Bulb",
     "Path Light Accessories",
     "Path Light Fixture",
+    "Path Light LED Bundle Kit",
     "photocell sensor",
     "Portable LED Bulb",
     "Portable LED Light Fixture",
@@ -88,6 +91,7 @@
     "Smart Wall Lights",
     "Solar Light",
     "Solar Lights",
+    "Solar Pathlights",
     "solar Wall Light",
     "Solar Wall Light",
     "Spike",
@@ -857,16 +861,6 @@
       "headerUnderscore": "custom_pdf"
     },
     {
-      "name": "Tech PDF",
-      "namespace": "custom",
-      "key": "tech_pdf",
-      "type": "file_reference",
-      "description": "",
-      "validations": [],
-      "headerDot": "custom.tech_pdf",
-      "headerUnderscore": "custom_tech_pdf"
-    },
-    {
       "name": "Installation Video",
       "namespace": "custom",
       "key": "installation_video",
@@ -1100,438 +1094,917 @@
       "validations": [],
       "headerDot": "custom.max_voltage",
       "headerUnderscore": "custom_max_voltage"
+    },
+    {
+      "name": "Celebration type",
+      "namespace": "shopify",
+      "key": "celebration-type",
+      "type": "list.metaobject_reference",
+      "description": "Specifies the occasion for which the product is suitable, like Christmas or graduation",
+      "validations": [
+        {
+          "name": "metaobject_definition_id",
+          "value": "gid://shopify/MetaobjectDefinition/12969246913"
+        }
+      ],
+      "headerDot": "shopify.celebration-type",
+      "headerUnderscore": "shopify_celebration-type"
+    },
+    {
+      "name": "Cabinet light fixture style",
+      "namespace": "shopify",
+      "key": "cabinet-light-fixture-style",
+      "type": "list.metaobject_reference",
+      "description": "Describes the physical style or form factor of the cabinet light.",
+      "validations": [
+        {
+          "name": "metaobject_definition_id",
+          "value": "gid://shopify/MetaobjectDefinition/13155729601"
+        }
+      ],
+      "headerDot": "shopify.cabinet-light-fixture-style",
+      "headerUnderscore": "shopify_cabinet-light-fixture-style"
+    },
+    {
+      "name": "Specification Table",
+      "namespace": "custom",
+      "key": "specification_table",
+      "type": "multi_line_text_field",
+      "description": "",
+      "validations": [],
+      "headerDot": "custom.specification_table",
+      "headerUnderscore": "custom_specification_table"
+    },
+    {
+      "name": "Unavailable reason",
+      "namespace": "shopify",
+      "key": "unavailable_reason",
+      "type": "single_line_text_field",
+      "description": "The reason a product is currently unavailable to be sold.",
+      "validations": [],
+      "headerDot": "shopify.unavailable_reason",
+      "headerUnderscore": "shopify_unavailable_reason"
     }
   ],
   "collectionHintsByProductType": {
-    "12V Hanging Light": {
+    "12v hanging light": {
+      "productTypeKey": "12v hanging light",
+      "storeProductTypes": [
+        "12V Hanging Light"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "2025-Undercabinet lights": {
+    "2025 undercabinet lights": {
+      "productTypeKey": "2025 undercabinet lights",
+      "storeProductTypes": [
+        "2025-Undercabinet lights"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "4 oz Geotextile": {
+    "4 oz geotextile": {
+      "productTypeKey": "4 oz geotextile",
+      "storeProductTypes": [
+        "4 oz Geotextile"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "6 oz Geotextile": {
+    "6 oz geotextile": {
+      "productTypeKey": "6 oz geotextile",
+      "storeProductTypes": [
+        "6 oz Geotextile"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "8 oz Geotextile": {
+    "8 oz geotextile": {
+      "productTypeKey": "8 oz geotextile",
+      "storeProductTypes": [
+        "8 oz Geotextile"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Accessory": {
+    "accessory": {
+      "productTypeKey": "accessory",
+      "storeProductTypes": [
+        "Accessory"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Ambient Lights": {
+    "ambient lights": {
+      "productTypeKey": "ambient lights",
+      "storeProductTypes": [
+        "Ambient Lights"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Automotive Ballast": {
+    "automotive ballast": {
+      "productTypeKey": "automotive ballast",
+      "storeProductTypes": [
+        "Automotive Ballast"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Automotive LED Bulb": {
+    "automotive led bulb": {
+      "productTypeKey": "automotive led bulb",
+      "storeProductTypes": [
+        "Automotive LED Bulb"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Automotive LED Light": {
+    "automotive led light": {
+      "productTypeKey": "automotive led light",
+      "storeProductTypes": [
+        "Automotive LED Light"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Ballast": {
+    "ballast": {
+      "productTypeKey": "ballast",
+      "storeProductTypes": [
+        "Ballast"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Cabinet Light": {
+    "brass spotlight bundle kit": {
+      "productTypeKey": "brass spotlight bundle kit",
+      "storeProductTypes": [
+        "Brass Spotlight Bundle Kit"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Ceiling Fan": {
+    "cabinet light": {
+      "productTypeKey": "cabinet light",
+      "storeProductTypes": [
+        "Cabinet Light"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Ceiling Fan Control": {
+    "ceiling fan": {
+      "productTypeKey": "ceiling fan",
+      "storeProductTypes": [
+        "Ceiling Fan"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Ceiling Fan Filters": {
+    "ceiling fan control": {
+      "productTypeKey": "ceiling fan control",
+      "storeProductTypes": [
+        "Ceiling Fan Control"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Ceiling Fan Light": {
+    "ceiling fan filters": {
+      "productTypeKey": "ceiling fan filters",
+      "storeProductTypes": [
+        "Ceiling Fan Filters"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Ceiling Fan_2025": {
+    "ceiling fan light": {
+      "productTypeKey": "ceiling fan light",
+      "storeProductTypes": [
+        "Ceiling Fan Light"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Ceiling Light": {
+    "ceiling fan 2025": {
+      "productTypeKey": "ceiling fan 2025",
+      "storeProductTypes": [
+        "Ceiling Fan_2025"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Ceiling Light Fixtures": {
+    "ceiling light": {
+      "productTypeKey": "ceiling light",
+      "storeProductTypes": [
+        "Ceiling Light"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Christmas Light": {
+    "ceiling light fixtures": {
+      "productTypeKey": "ceiling light fixtures",
+      "storeProductTypes": [
+        "Ceiling Light Fixtures"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Circuit Breaker": {
+    "christmas light": {
+      "productTypeKey": "christmas light",
+      "storeProductTypes": [
+        "Christmas Light"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Closet Lighting": {
+    "circuit breaker": {
+      "productTypeKey": "circuit breaker",
+      "storeProductTypes": [
+        "Circuit Breaker"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Crystal Lamp": {
+    "closet lighting": {
+      "productTypeKey": "closet lighting",
+      "storeProductTypes": [
+        "Closet Lighting"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Deck Light": {
+    "crystal lamp": {
+      "productTypeKey": "crystal lamp",
+      "storeProductTypes": [
+        "Crystal Lamp"
+      ],
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "deck light": {
+      "productTypeKey": "deck light",
+      "storeProductTypes": [
+        "Deck Light"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
     "decorative lights": {
+      "productTypeKey": "decorative lights",
+      "storeProductTypes": [
+        "decorative lights",
+        "Decorative Lights"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Decorative Lights": {
+    "decorative solar light": {
+      "productTypeKey": "decorative solar light",
+      "storeProductTypes": [
+        "Decorative Solar Light"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Decorative Solar Light": {
+    "dimmer knob": {
+      "productTypeKey": "dimmer knob",
+      "storeProductTypes": [
+        "Dimmer Knob"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Dimmer Knob": {
+    "dimmer switch": {
+      "productTypeKey": "dimmer switch",
+      "storeProductTypes": [
+        "Dimmer Switch"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Dimmer Switch": {
+    "dining table": {
+      "productTypeKey": "dining table",
+      "storeProductTypes": [
+        "Dining Table"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Dining Table": {
+    "flashlights": {
+      "productTypeKey": "flashlights",
+      "storeProductTypes": [
+        "Flashlights"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Flashlights": {
+    "flood light bulb": {
+      "productTypeKey": "flood light bulb",
+      "storeProductTypes": [
+        "Flood Light Bulb"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Flood Light Bulb": {
+    "floor lamp": {
+      "productTypeKey": "floor lamp",
+      "storeProductTypes": [
+        "Floor Lamp"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Floor Lamp": {
+    "g4 light bulb": {
+      "productTypeKey": "g4 light bulb",
+      "storeProductTypes": [
+        "G4 Light Bulb"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "G4 Light Bulb": {
+    "grow light": {
+      "productTypeKey": "grow light",
+      "storeProductTypes": [
+        "Grow light"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Grow light": {
+    "grow light 2025": {
+      "productTypeKey": "grow light 2025",
+      "storeProductTypes": [
+        "Grow light - 2025"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Grow light - 2025": {
+    "halogen bulb": {
+      "productTypeKey": "halogen bulb",
+      "storeProductTypes": [
+        "Halogen Bulb"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Halogen Bulb": {
+    "halogen transformer": {
+      "productTypeKey": "halogen transformer",
+      "storeProductTypes": [
+        "Halogen Transformer"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Halogen Transformer": {
-      "suggestedTags": [],
-      "matchingCollections": []
-    },
-    "Hanging Light": {
+    "hanging light": {
+      "productTypeKey": "hanging light",
+      "storeProductTypes": [
+        "Hanging Light"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
     "hardscape lights": {
+      "productTypeKey": "hardscape lights",
+      "storeProductTypes": [
+        "hardscape lights"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Hardscape Paver": {
+    "hardscape paver": {
+      "productTypeKey": "hardscape paver",
+      "storeProductTypes": [
+        "Hardscape Paver"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Honeycomb Louver": {
+    "honeycomb louver": {
+      "productTypeKey": "honeycomb louver",
+      "storeProductTypes": [
+        "Honeycomb Louver"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Indoor Hanging Light": {
+    "indoor hanging light": {
+      "productTypeKey": "indoor hanging light",
+      "storeProductTypes": [
+        "Indoor Hanging Light"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Indoor Wall Light": {
+    "indoor wall light": {
+      "productTypeKey": "indoor wall light",
+      "storeProductTypes": [
+        "Indoor Wall Light"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Indoor Wall Lights": {
+    "indoor wall lights": {
+      "productTypeKey": "indoor wall lights",
+      "storeProductTypes": [
+        "Indoor Wall Lights"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Landscape Lighting Transformer": {
+    "landscape lighting kit": {
+      "productTypeKey": "landscape lighting kit",
+      "storeProductTypes": [
+        "Landscape Lighting Kit"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Landscape Transformers": {
+    "landscape lighting transformer": {
+      "productTypeKey": "landscape lighting transformer",
+      "storeProductTypes": [
+        "Landscape Lighting Transformer"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "LED bulb": {
+    "landscape transformers": {
+      "productTypeKey": "landscape transformers",
+      "storeProductTypes": [
+        "Landscape Transformers"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "LED Bulb": {
+    "led bulb": {
+      "productTypeKey": "led bulb",
+      "storeProductTypes": [
+        "LED bulb",
+        "LED Bulb"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "LED Bulb with Remote": {
+    "led bulb with remote": {
+      "productTypeKey": "led bulb with remote",
+      "storeProductTypes": [
+        "LED Bulb with Remote"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "LED Bulbs": {
+    "led bulbs": {
+      "productTypeKey": "led bulbs",
+      "storeProductTypes": [
+        "LED Bulbs"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "LED Driver": {
+    "led driver": {
+      "productTypeKey": "led driver",
+      "storeProductTypes": [
+        "LED Driver"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "LED light": {
+    "led light": {
+      "productTypeKey": "led light",
+      "storeProductTypes": [
+        "LED light"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Light Bulb": {
+    "light bulb": {
+      "productTypeKey": "light bulb",
+      "storeProductTypes": [
+        "Light Bulb"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Light Fixture": {
+    "light fixture": {
+      "productTypeKey": "light fixture",
+      "storeProductTypes": [
+        "Light Fixture"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Light Fixture Mount": {
+    "light fixture mount": {
+      "productTypeKey": "light fixture mount",
+      "storeProductTypes": [
+        "Light Fixture Mount"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Low Voltage Wire": {
+    "low voltage wire": {
+      "productTypeKey": "low voltage wire",
+      "storeProductTypes": [
+        "Low Voltage Wire"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "MR11 Halogen Bulb": {
+    "mr11 halogen bulb": {
+      "productTypeKey": "mr11 halogen bulb",
+      "storeProductTypes": [
+        "MR11 Halogen Bulb"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "MR16 Halogen Bulb": {
+    "mr16 halogen bulb": {
+      "productTypeKey": "mr16 halogen bulb",
+      "storeProductTypes": [
+        "MR16 Halogen Bulb"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "MR16 Light Bulb": {
+    "mr16 light bulb": {
+      "productTypeKey": "mr16 light bulb",
+      "storeProductTypes": [
+        "MR16 Light Bulb"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "MR8 Light Bulb": {
+    "mr8 light bulb": {
+      "productTypeKey": "mr8 light bulb",
+      "storeProductTypes": [
+        "MR8 Light Bulb"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Outdoor Wall Lights": {
+    "outdoor wall lights": {
+      "productTypeKey": "outdoor wall lights",
+      "storeProductTypes": [
+        "Outdoor Wall Lights"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "PAR36 Light Bulb": {
+    "par36 light bulb": {
+      "productTypeKey": "par36 light bulb",
+      "storeProductTypes": [
+        "PAR36 Light Bulb"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Path Light Accessories": {
+    "path light accessories": {
+      "productTypeKey": "path light accessories",
+      "storeProductTypes": [
+        "Path Light Accessories"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Path Light Fixture": {
+    "path light fixture": {
+      "productTypeKey": "path light fixture",
+      "storeProductTypes": [
+        "Path Light Fixture"
+      ],
+      "suggestedTags": [],
+      "matchingCollections": []
+    },
+    "path light led bundle kit": {
+      "productTypeKey": "path light led bundle kit",
+      "storeProductTypes": [
+        "Path Light LED Bundle Kit"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
     "photocell sensor": {
+      "productTypeKey": "photocell sensor",
+      "storeProductTypes": [
+        "photocell sensor"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Portable LED Bulb": {
+    "portable led bulb": {
+      "productTypeKey": "portable led bulb",
+      "storeProductTypes": [
+        "Portable LED Bulb"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Portable LED Light Fixture": {
+    "portable led light fixture": {
+      "productTypeKey": "portable led light fixture",
+      "storeProductTypes": [
+        "Portable LED Light Fixture"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
     "portable lights": {
+      "productTypeKey": "portable lights",
+      "storeProductTypes": [
+        "portable lights",
+        "Portable lights"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Portable lights": {
+    "projector light": {
+      "productTypeKey": "projector light",
+      "storeProductTypes": [
+        "Projector Light"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Projector Light": {
+    "reading light": {
+      "productTypeKey": "reading light",
+      "storeProductTypes": [
+        "Reading light"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Reading light": {
+    "recessed light fixtures": {
+      "productTypeKey": "recessed light fixtures",
+      "storeProductTypes": [
+        "Recessed Light Fixtures"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Recessed Light Fixtures": {
+    "smart ceiling light": {
+      "productTypeKey": "smart ceiling light",
+      "storeProductTypes": [
+        "Smart Ceiling Light"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Smart Ceiling Light": {
+    "smart dimmer switch": {
+      "productTypeKey": "smart dimmer switch",
+      "storeProductTypes": [
+        "Smart Dimmer Switch"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Smart Dimmer Switch": {
+    "smart plug": {
+      "productTypeKey": "smart plug",
+      "storeProductTypes": [
+        "Smart Plug"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Smart Plug": {
+    "smart wall lights": {
+      "productTypeKey": "smart wall lights",
+      "storeProductTypes": [
+        "Smart Wall Lights"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Smart Wall Lights": {
+    "solar light": {
+      "productTypeKey": "solar light",
+      "storeProductTypes": [
+        "Solar Light"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Solar Light": {
+    "solar lights": {
+      "productTypeKey": "solar lights",
+      "storeProductTypes": [
+        "Solar Lights"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Solar Lights": {
+    "solar pathlights": {
+      "productTypeKey": "solar pathlights",
+      "storeProductTypes": [
+        "Solar Pathlights"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "solar Wall Light": {
+    "solar wall light": {
+      "productTypeKey": "solar wall light",
+      "storeProductTypes": [
+        "solar Wall Light",
+        "Solar Wall Light"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Solar Wall Light": {
+    "spike": {
+      "productTypeKey": "spike",
+      "storeProductTypes": [
+        "Spike"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Spike": {
+    "spike mount": {
+      "productTypeKey": "spike mount",
+      "storeProductTypes": [
+        "Spike Mount"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Spike Mount": {
+    "spot light": {
+      "productTypeKey": "spot light",
+      "storeProductTypes": [
+        "Spot Light"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Spot Light": {
+    "spot light fixture": {
+      "productTypeKey": "spot light fixture",
+      "storeProductTypes": [
+        "Spot Light Fixture"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Spot Light Fixture": {
+    "step light": {
+      "productTypeKey": "step light",
+      "storeProductTypes": [
+        "Step Light"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Step Light": {
+    "string lights": {
+      "productTypeKey": "string lights",
+      "storeProductTypes": [
+        "String Lights"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "String Lights": {
+    "strip and rope light": {
+      "productTypeKey": "strip and rope light",
+      "storeProductTypes": [
+        "Strip and Rope Light"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Strip and Rope Light": {
+    "strip light": {
+      "productTypeKey": "strip light",
+      "storeProductTypes": [
+        "Strip light",
+        "Strip Light"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Strip light": {
+    "table lamp": {
+      "productTypeKey": "table lamp",
+      "storeProductTypes": [
+        "Table Lamp"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Strip Light": {
+    "table lamps": {
+      "productTypeKey": "table lamps",
+      "storeProductTypes": [
+        "Table Lamps"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Table Lamp": {
+    "timer": {
+      "productTypeKey": "timer",
+      "storeProductTypes": [
+        "Timer"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Table Lamps": {
+    "touch dimmer": {
+      "productTypeKey": "touch dimmer",
+      "storeProductTypes": [
+        "Touch Dimmer"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Timer": {
+    "transformer": {
+      "productTypeKey": "transformer",
+      "storeProductTypes": [
+        "Transformer"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Touch Dimmer": {
+    "transformer accessories": {
+      "productTypeKey": "transformer accessories",
+      "storeProductTypes": [
+        "Transformer Accessories"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Transformer": {
+    "under cabinet light": {
+      "productTypeKey": "under cabinet light",
+      "storeProductTypes": [
+        "Under Cabinet Light"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Transformer Accessories": {
+    "undercabinet light": {
+      "productTypeKey": "undercabinet light",
+      "storeProductTypes": [
+        "Undercabinet Light"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Under Cabinet Light": {
+    "underwater light fixture": {
+      "productTypeKey": "underwater light fixture",
+      "storeProductTypes": [
+        "Underwater Light Fixture"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Undercabinet Light": {
+    "wall lights": {
+      "productTypeKey": "wall lights",
+      "storeProductTypes": [
+        "Wall Lights"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Underwater Light Fixture": {
+    "wall mount fixture": {
+      "productTypeKey": "wall mount fixture",
+      "storeProductTypes": [
+        "Wall Mount Fixture"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Wall Lights": {
+    "wedge light bulb": {
+      "productTypeKey": "wedge light bulb",
+      "storeProductTypes": [
+        "Wedge Light Bulb"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Wall Mount Fixture": {
+    "weed barrier": {
+      "productTypeKey": "weed barrier",
+      "storeProductTypes": [
+        "Weed Barrier"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Wedge Light Bulb": {
+    "well light": {
+      "productTypeKey": "well light",
+      "storeProductTypes": [
+        "Well Light"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Weed Barrier": {
+    "well light fixture": {
+      "productTypeKey": "well light fixture",
+      "storeProductTypes": [
+        "Well Light Fixture"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Well Light": {
+    "wholesale spot light fixture": {
+      "productTypeKey": "wholesale spot light fixture",
+      "storeProductTypes": [
+        "Wholesale - Spot Light Fixture"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Well Light Fixture": {
+    "wire terminals connectors": {
+      "productTypeKey": "wire terminals connectors",
+      "storeProductTypes": [
+        "Wire Terminals & Connectors"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     },
-    "Wholesale - Spot Light Fixture": {
-      "suggestedTags": [],
-      "matchingCollections": []
-    },
-    "Wire Terminals & Connectors": {
-      "suggestedTags": [],
-      "matchingCollections": []
-    },
-    "Work Light": {
+    "work light": {
+      "productTypeKey": "work light",
+      "storeProductTypes": [
+        "Work Light"
+      ],
       "suggestedTags": [],
       "matchingCollections": []
     }

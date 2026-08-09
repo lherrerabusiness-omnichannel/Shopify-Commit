@@ -1,7 +1,7 @@
 {
   "store": "ironsmith-lighting.myshopify.com",
   "apiVersion": "2025-10",
-  "generatedAt": "2026-04-29T03:23:44.237Z",
+  "generatedAt": "2026-08-08T22:24:09.273Z",
   "productDefinitions": [
     {
       "id": "gid://shopify/MetafieldDefinition/1040810177",
@@ -649,17 +649,6 @@
       "validations": []
     },
     {
-      "id": "gid://shopify/MetafieldDefinition/141356826817",
-      "name": "Tech PDF",
-      "namespace": "custom",
-      "key": "tech_pdf",
-      "description": "",
-      "type": {
-        "name": "file_reference"
-      },
-      "validations": []
-    },
-    {
       "id": "gid://shopify/MetafieldDefinition/141357449409",
       "name": "Installation Video",
       "namespace": "custom",
@@ -910,6 +899,60 @@
         "name": "single_line_text_field"
       },
       "validations": []
+    },
+    {
+      "id": "gid://shopify/MetafieldDefinition/151673340097",
+      "name": "Celebration type",
+      "namespace": "shopify",
+      "key": "celebration-type",
+      "description": "Specifies the occasion for which the product is suitable, like Christmas or graduation",
+      "type": {
+        "name": "list.metaobject_reference"
+      },
+      "validations": [
+        {
+          "name": "metaobject_definition_id",
+          "value": "gid://shopify/MetaobjectDefinition/12969246913"
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/MetafieldDefinition/153336840385",
+      "name": "Cabinet light fixture style",
+      "namespace": "shopify",
+      "key": "cabinet-light-fixture-style",
+      "description": "Describes the physical style or form factor of the cabinet light.",
+      "type": {
+        "name": "list.metaobject_reference"
+      },
+      "validations": [
+        {
+          "name": "metaobject_definition_id",
+          "value": "gid://shopify/MetaobjectDefinition/13155729601"
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/MetafieldDefinition/163825713345",
+      "name": "Specification Table",
+      "namespace": "custom",
+      "key": "specification_table",
+      "description": "",
+      "type": {
+        "name": "multi_line_text_field"
+      },
+      "validations": []
+    },
+    {
+      "id": "gid://shopify/MetafieldDefinition/165523128513",
+      "name": "Unavailable reason",
+      "namespace": "shopify",
+      "key": "unavailable_reason",
+      "description": "The reason a product is currently unavailable to be sold.",
+      "type": {
+        "name": "single_line_text_field"
+      },
+      "validations": []
     }
   ],
   "variantDefinitions": [
@@ -1047,6 +1090,7 @@
     "Automotive LED Bulb",
     "Automotive LED Light",
     "Ballast",
+    "Brass Spotlight Bundle Kit",
     "Cabinet Light",
     "Ceiling Fan",
     "Ceiling Fan Control",
@@ -1081,6 +1125,7 @@
     "Indoor Hanging Light",
     "Indoor Wall Light",
     "Indoor Wall Lights",
+    "Landscape Lighting Kit",
     "Landscape Lighting Transformer",
     "Landscape Transformers",
     "LED bulb",
@@ -1101,6 +1146,7 @@
     "PAR36 Light Bulb",
     "Path Light Accessories",
     "Path Light Fixture",
+    "Path Light LED Bundle Kit",
     "photocell sensor",
     "Portable LED Bulb",
     "Portable LED Light Fixture",
@@ -1115,6 +1161,7 @@
     "Smart Wall Lights",
     "Solar Light",
     "Solar Lights",
+    "Solar Pathlights",
     "solar Wall Light",
     "Solar Wall Light",
     "Spike",
@@ -1418,7 +1465,7 @@
     },
     {
       "id": "gid://shopify/Collection/274550522049",
-      "title": "Transformers",
+      "title": "Halogen Transformers",
       "handle": "transformers",
       "ruleSet": {
         "appliedDisjunctively": false,
@@ -1863,10 +1910,10 @@
     },
     {
       "id": "gid://shopify/Collection/285213032641",
-      "title": "Deck Light",
+      "title": "Deck and Walkway Lights",
       "handle": "deck-light",
       "ruleSet": {
-        "appliedDisjunctively": false,
+        "appliedDisjunctively": true,
         "rules": [
           {
             "column": "TAG",
@@ -1876,7 +1923,7 @@
           {
             "column": "TAG",
             "relation": "EQUALS",
-            "condition": "light fixture"
+            "condition": "Step Light"
           }
         ]
       }
@@ -1962,11 +2009,6 @@
             "column": "TAG",
             "relation": "EQUALS",
             "condition": "path light fixtures"
-          },
-          {
-            "column": "TAG",
-            "relation": "EQUALS",
-            "condition": "Step Light"
           }
         ]
       }
@@ -2196,11 +2238,6 @@
           {
             "column": "TAG",
             "relation": "EQUALS",
-            "condition": "solar landscape lighting"
-          },
-          {
-            "column": "TAG",
-            "relation": "EQUALS",
             "condition": "path light fixtures"
           },
           {
@@ -2232,26 +2269,6 @@
             "column": "TAG",
             "relation": "EQUALS",
             "condition": "Patio"
-          },
-          {
-            "column": "TAG",
-            "relation": "EQUALS",
-            "condition": "outdoor wall lights"
-          },
-          {
-            "column": "TAG",
-            "relation": "EQUALS",
-            "condition": "solar wall lights"
-          },
-          {
-            "column": "TAG",
-            "relation": "EQUALS",
-            "condition": "solar decorative lights"
-          },
-          {
-            "column": "TAG",
-            "relation": "EQUALS",
-            "condition": "solar pathway lights"
           }
         ]
       }
@@ -2378,7 +2395,7 @@
     },
     {
       "id": "gid://shopify/Collection/481321222337",
-      "title": "Tiffany Lamps",
+      "title": "Tiffany Style Lamps",
       "handle": "tiffany-lamps",
       "ruleSet": {
         "appliedDisjunctively": true,
@@ -2692,33 +2709,8 @@
       }
     },
     {
-      "id": "gid://shopify/Collection/481469071553",
-      "title": "Ceiling Fixtures",
-      "handle": "ceiling-fixtures",
-      "ruleSet": {
-        "appliedDisjunctively": true,
-        "rules": [
-          {
-            "column": "TAG",
-            "relation": "EQUALS",
-            "condition": "ceiling flush mounts"
-          },
-          {
-            "column": "TAG",
-            "relation": "EQUALS",
-            "condition": "ceiling recessed lights"
-          },
-          {
-            "column": "TAG",
-            "relation": "EQUALS",
-            "condition": "ceiling fan"
-          }
-        ]
-      }
-    },
-    {
       "id": "gid://shopify/Collection/481469137089",
-      "title": "Wall & Hanging Lights",
+      "title": "Wall and Vanity Light Fixture",
       "handle": "wall-hanging-lights",
       "ruleSet": {
         "appliedDisjunctively": true,
@@ -2727,11 +2719,6 @@
             "column": "TAG",
             "relation": "EQUALS",
             "condition": "indoor wall lights"
-          },
-          {
-            "column": "TAG",
-            "relation": "EQUALS",
-            "condition": "hanging pendant lights"
           }
         ]
       }
@@ -3222,6 +3209,41 @@
             "column": "TITLE",
             "relation": "CONTAINS",
             "condition": "brass"
+          }
+        ]
+      }
+    },
+    {
+      "id": "gid://shopify/Collection/490318790849",
+      "title": "Hanging Light",
+      "handle": "hanging-light",
+      "ruleSet": {
+        "appliedDisjunctively": true,
+        "rules": [
+          {
+            "column": "TAG",
+            "relation": "EQUALS",
+            "condition": "hanging light fixtures"
+          },
+          {
+            "column": "TAG",
+            "relation": "EQUALS",
+            "condition": "pendant light fixture"
+          }
+        ]
+      }
+    },
+    {
+      "id": "gid://shopify/Collection/490635919553",
+      "title": "Landscape Lighting Kits",
+      "handle": "landscape-lighting-kits",
+      "ruleSet": {
+        "appliedDisjunctively": true,
+        "rules": [
+          {
+            "column": "TAG",
+            "relation": "EQUALS",
+            "condition": "Landscape Lighting Kits"
           }
         ]
       }
