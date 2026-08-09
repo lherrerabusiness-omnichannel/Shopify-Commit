@@ -13,12 +13,18 @@ const {
 
 dotenv.config();
 
-const PORT = Number(process.env.EMBEDDED_UI_PORT || 4320);
-const HOST = process.env.EMBEDDED_UI_HOST || "127.0.0.1";
+const PORT = Number(process.env.EMBEDDED_UI_PORT || process.env.PORT || 4320);
+// Default to 0.0.0.0 so the server is reachable when hosted on a PaaS (Render/Railway/etc.),
+// which requires binding to all interfaces rather than just loopback. Still works fine for
+// local solo dev — 127.0.0.1/localhost remain reachable when bound to 0.0.0.0.
+const HOST = process.env.EMBEDDED_UI_HOST || "0.0.0.0";
 const CLIENT_ID = String(process.env.SHOPIFY_CLIENT_ID || "").trim();
 const CLIENT_SECRET = String(process.env.SHOPIFY_CLIENT_SECRET || "").trim();
 const DEFAULT_SCOPES = String(process.env.SHOPIFY_SCOPES || "read_products,write_products,read_inventory,write_inventory,read_locations").trim();
-const REDIRECT_URI = String(process.env.EMBEDDED_SHOPIFY_REDIRECT_URI || `http://${HOST}:${PORT}/auth/callback`).trim();
+// The OAuth redirect must be a browser-navigable host, not the 0.0.0.0 bind address, so it
+// defaults to 127.0.0.1 for local dev. In hosted environments, set EMBEDDED_SHOPIFY_REDIRECT_URI
+// explicitly to the public https URL (e.g. https://yourapp.onrender.com/auth/callback).
+const REDIRECT_URI = String(process.env.EMBEDDED_SHOPIFY_REDIRECT_URI || `http://127.0.0.1:${PORT}/auth/callback`).trim();
 const SHOPIFY_API_VERSION = String(process.env.SHOPIFY_API_VERSION || "2025-10").trim();
 const OPENAI_API_KEY = String(process.env.OPENAI_API_KEY || "").trim();
 const OPENAI_VISION_MODEL = String(process.env.OPENAI_VISION_MODEL || "gpt-4o-mini").trim();
@@ -38,6 +44,41 @@ const GEMINI_MAX_OUTPUT_TOKENS = Math.min(Math.max(Number(process.env.GEMINI_MAX
 const GEMINI_MAX_IMAGE_BYTES = 800 * 1024; // 800 KB
 const EMBEDDED_ALLOW_LIVE_PUSH = String(process.env.EMBEDDED_ALLOW_LIVE_PUSH || "false").toLowerCase() === "true";
 const PILOT_ROLLOUT_ENFORCE = String(process.env.PILOT_ROLLOUT_ENFORCE || "false").toLowerCase() === "true";
+// Optional HTTP Basic Auth gate for shared/hosted deployments. Disabled (no-op) unless both
+// EMBEDDED_APP_USERNAME and EMBEDDED_APP_PASSWORD are set, so local solo dev is unaffected.
+const EMBEDDED_APP_USERNAME = String(process.env.EMBEDDED_APP_USERNAME || "").trim();
+const EMBEDDED_APP_PASSWORD = String(process.env.EMBEDDED_APP_PASSWORD || "").trim();
+const EMBEDDED_AUTH_ENABLED = Boolean(EMBEDDED_APP_USERNAME && EMBEDDED_APP_PASSWORD);
+
+function timingSafeStringEqual(a, b) {
+  const bufA = Buffer.from(String(a || ""));
+  const bufB = Buffer.from(String(b || ""));
+  if (bufA.length !== bufB.length) {
+    // Still run a comparison of equal-length buffers so failure timing doesn't
+    // trivially leak the correct credential length.
+    crypto.timingSafeEqual(bufA, bufA);
+    return false;
+  }
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
+function checkBasicAuth(req) {
+  if (!EMBEDDED_AUTH_ENABLED) return true;
+  const header = String(req.headers["authorization"] || "");
+  const match = header.match(/^Basic\s+(.+)$/i);
+  if (!match) return false;
+  let decoded = "";
+  try {
+    decoded = Buffer.from(match[1], "base64").toString("utf8");
+  } catch {
+    return false;
+  }
+  const sepIndex = decoded.indexOf(":");
+  if (sepIndex < 0) return false;
+  const user = decoded.slice(0, sepIndex);
+  const pass = decoded.slice(sepIndex + 1);
+  return timingSafeStringEqual(user, EMBEDDED_APP_USERNAME) && timingSafeStringEqual(pass, EMBEDDED_APP_PASSWORD);
+}
 const STORE_DB_PATH = path.resolve(process.cwd(), "data/shopify-store-db.json");
 const INTAKE_TEMPLATE_PATH = path.resolve(process.cwd(), "data/intake-single/products-intake.csv");
 const LEGACY_BOOTSTRAP_STATE_PATH = path.resolve(process.cwd(), "data/ui-session/embedded-bootstrap-state.json");
@@ -5284,12 +5325,22 @@ function createServer() {
 
   return http.createServer(async (req, res) => {
     const requestUrl = new URL(req.url, `http://${HOST}:${PORT}`);
-    pruneExpiredStates();
-    const getContext = (body = null) => getShopContext(getShopFromRequest(requestUrl, body));
 
     if (requestUrl.pathname === "/api/health") {
       return sendJson(res, 200, { ok: true, service: "embedded-app-shell" });
     }
+
+    if (!checkBasicAuth(req)) {
+      res.writeHead(401, {
+        "Content-Type": "text/plain; charset=utf-8",
+        "WWW-Authenticate": 'Basic realm="Shopify Commit", charset="UTF-8"',
+      });
+      res.end("Authentication required.");
+      return;
+    }
+
+    pruneExpiredStates();
+    const getContext = (body = null) => getShopContext(getShopFromRequest(requestUrl, body));
 
     if (requestUrl.pathname === "/api/auth/config") {
       return sendJson(res, 200, {
