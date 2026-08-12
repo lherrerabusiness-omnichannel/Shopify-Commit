@@ -3300,9 +3300,9 @@
         quickStatus.textContent = "Add your shop domain before connecting OAuth.";
         return;
       }
-      const next = `/auth/start?shop=${encodeURIComponent(shop)}`;
+      const next = `${window.location.origin}/auth/start?shop=${encodeURIComponent(shop)}`;
       if (window.top && window.top !== window) {
-        window.top.location.assign(next);
+        window.top.location.href = next;
       } else {
         window.location.assign(next);
       }
