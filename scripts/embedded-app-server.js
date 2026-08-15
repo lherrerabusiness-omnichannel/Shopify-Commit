@@ -32,8 +32,13 @@ const OPENAI_COPY_MODEL = String(process.env.OPENAI_COPY_MODEL || "gpt-4o-mini")
 // AI provider routing: "openai" (default) or "gemini"
 const AI_PROVIDER = String(process.env.AI_PROVIDER || "openai").trim().toLowerCase();
 const GEMINI_API_KEY = String(process.env.GEMINI_API_KEY || "").trim();
-const GEMINI_COPY_MODEL = String(process.env.GEMINI_COPY_MODEL || "gemini-2.0-flash-lite").trim();
-const GEMINI_VISION_MODEL = String(process.env.GEMINI_VISION_MODEL || "gemini-2.0-flash-lite").trim();
+// Default to Google's auto-updating alias, not a pinned version string — Google retires
+// specific Gemini model versions on a rolling basis (e.g. gemini-2.0-flash-lite, then
+// gemini-2.5-flash both went dark for this app with a silent-looking template fallback
+// until server logs were checked). "-latest" tracks the current GA model with a 2-week
+// notice before any breaking swap, so a fresh/reset deploy never regresses to a dead model.
+const GEMINI_COPY_MODEL = String(process.env.GEMINI_COPY_MODEL || "gemini-flash-latest").trim();
+const GEMINI_VISION_MODEL = String(process.env.GEMINI_VISION_MODEL || "gemini-flash-latest").trim();
 // Max output tokens for Gemini listing generation.
 // NOTE: For Gemini 2.5 series models, maxOutputTokens includes thinking tokens. We disable
 // thinking via thinkingConfig below, so the full budget goes to actual listing output.
@@ -2674,7 +2679,12 @@ function buildInputGuidance(options = {}) {
 // ---------------------------------------------------------------------------
 async function aiGenerateProductCopy(options = {}) {
   const provider = resolveAiCopyProvider();
-  if (!provider) return null;
+  if (!provider) {
+    // This used to fail with zero log output, so a missing/misconfigured AI_PROVIDER or
+    // API key produced a fully mechanical listing with no visible signal anything was wrong.
+    console.error("[ai-copy] no AI provider configured (AI_PROVIDER/GEMINI_API_KEY/OPENAI_API_KEY) — falling back to non-AI template generation.");
+    return null;
+  }
 
   const systemPrompt = String(options.systemPrompt || "").trim();
   const shortDescription = String(options.shortDescription || "").trim();
@@ -4527,7 +4537,11 @@ async function enrichImportedOutputWithAi(shopContext, options = {}) {
     errors: 0,
   };
 
-  if (!provider || !outputPath) {
+  if (!provider) {
+    console.error("[ai-copy] enrichImportedOutputWithAi: no AI provider configured — imported output will keep template-only fields.");
+    return summary;
+  }
+  if (!outputPath) {
     return summary;
   }
 

@@ -2929,6 +2929,15 @@
       if (payload.stdout) lines.push(`stdout: ${payload.stdout}`);
       if (payload.stderr) lines.push(`stderr: ${payload.stderr}`);
       if (payload.error) lines.push(`error: ${payload.error}`);
+      // Surface silent AI-generation failure: if products were processed but AI enrichment
+      // produced nothing (or errored on every item), the listing content is template-only,
+      // not AI-written. This was previously invisible to the user without checking server logs.
+      const enrichment = payload.aiImportEnrichment;
+      if (enrichment && enrichment.attempted > 0 && enrichment.generated === 0) {
+        lines.push(`⚠ AI ENRICHMENT DID NOT RUN: ${enrichment.attempted} product(s) processed with template-only fields (no AI-generated title/description). Check AI_PROVIDER/API key/model config on the server.`);
+      } else if (enrichment && enrichment.errors > 0) {
+        lines.push(`⚠ AI enrichment errors on ${enrichment.errors}/${enrichment.attempted} product(s) — some fields may be template-only. Check server logs.`);
+      }
       return lines.join("\n");
     }
 
