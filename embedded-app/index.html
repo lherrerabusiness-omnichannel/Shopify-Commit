@@ -554,6 +554,19 @@
       </div>
     </div>
   </div>
+  <!-- Generic confirm modal: window.confirm() is unreliable/silently blocked inside the
+       Shopify admin embedded iframe on some browsers, so confirmations that gate a live
+       Shopify write use this in-page modal instead. -->
+  <div class="modal-backdrop" id="genericConfirmModal" role="dialog" aria-modal="true" aria-labelledby="genericConfirmTitle">
+    <div class="modal-box">
+      <h3 id="genericConfirmTitle">Confirm</h3>
+      <p id="genericConfirmBody"></p>
+      <div class="modal-btns">
+        <button class="btn primary" id="genericConfirmOkBtn" type="button">OK</button>
+        <button class="btn" id="genericConfirmCancelBtn" type="button">Cancel</button>
+      </div>
+    </div>
+  </div>
   <div class="topbar">
     <div>
       Shopify Commit Embedded App
@@ -1184,6 +1197,39 @@
     const skuModalDetail = document.getElementById("skuModalDetail");
     const skuModalCreateNew = document.getElementById("skuModalCreateNew");
     const skuModalCancel = document.getElementById("skuModalCancel");
+
+    // Generic confirm modal state (replaces window.confirm(), which is unreliable
+    // inside the Shopify admin embedded iframe on some browsers).
+    const genericConfirmModal = document.getElementById("genericConfirmModal");
+    const genericConfirmTitle = document.getElementById("genericConfirmTitle");
+    const genericConfirmBody = document.getElementById("genericConfirmBody");
+    const genericConfirmOkBtn = document.getElementById("genericConfirmOkBtn");
+    const genericConfirmCancelBtn = document.getElementById("genericConfirmCancelBtn");
+
+    function showConfirmModal(title, bodyText) {
+      genericConfirmTitle.textContent = title;
+      genericConfirmBody.textContent = bodyText;
+      return new Promise((resolve) => {
+        genericConfirmModal.classList.add("open");
+
+        function onOk() {
+          cleanup();
+          resolve(true);
+        }
+        function onCancel() {
+          cleanup();
+          resolve(false);
+        }
+        function cleanup() {
+          genericConfirmModal.classList.remove("open");
+          genericConfirmOkBtn.removeEventListener("click", onOk);
+          genericConfirmCancelBtn.removeEventListener("click", onCancel);
+        }
+
+        genericConfirmOkBtn.addEventListener("click", onOk);
+        genericConfirmCancelBtn.addEventListener("click", onCancel);
+      });
+    }
 
     // AI status badge
     const aiStatusBadge = document.getElementById("aiStatusBadge");
@@ -2228,7 +2274,10 @@
         // Always prompt — regardless of whether a previous generation just completed.
         // This lets the user generate a new listing from the same reviewed data without
         // having to change any fields first.
-        const shouldPushLive = window.confirm("Generate a new Shopify draft listing from your reviewed fields and push it live now?\n\nClick OK to create a new draft, or Cancel to keep your work.");
+        const shouldPushLive = await showConfirmModal(
+          "Push Live to Shopify?",
+          "Generate a new Shopify draft listing from your reviewed fields and push it live now? Click OK to create a new draft, or Cancel to keep your work."
+        );
         if (!shouldPushLive) {
           quickStatus.textContent = "Cancelled before live push. Your reviewed fields are preserved.";
           return;
