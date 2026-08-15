@@ -5385,7 +5385,13 @@ function createServer() {
       return sendJson(res, 200, { ok: true, service: "embedded-app-shell" });
     }
 
-    if (!checkBasicAuth(req)) {
+    // Basic Auth gates the page shell itself, not every request underneath it. Gating
+    // /api/* too meant the ~8 background polling calls that fire on a timer each
+    // re-triggered their own 401 challenge whenever the browser didn't retain cached
+    // credentials in the embedded Shopify admin iframe context — producing a repeated
+    // native login prompt every few seconds instead of once at page load.
+    const isPageRequest = requestUrl.pathname === "/" || requestUrl.pathname === "/index.html";
+    if (isPageRequest && !checkBasicAuth(req)) {
       res.writeHead(401, {
         "Content-Type": "text/plain; charset=utf-8",
         "WWW-Authenticate": 'Basic realm="Shopify Commit", charset="UTF-8"',
