@@ -17,7 +17,7 @@
       "target": "Underwater Light Fixture"
     },
     {
-      "matchAny": ["well light", "in-ground", "landscape", "half moon"],
+      "matchAny": ["well light", "in-ground", "half moon"],
       "target": "Well Light Fixture"
     },
     {

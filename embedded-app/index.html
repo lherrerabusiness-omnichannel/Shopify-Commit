@@ -1159,6 +1159,11 @@
     let customCsvRow = {};
     let customCsvContent = "";
     let customCsvUserEditedFields = new Set();
+    // Snapshot of the CSV content that was actually sent to the last successful
+    // /api/workflow/import call. Used to detect reviewed-field edits (e.g. a product
+    // type change) made after generation but before push, so push can be blocked
+    // instead of silently publishing stale content.
+    let lastGeneratedCsvContent = "";
     let availableProductTypes = [];
     let latestSuggestedProductType = "";
     let latestSuggestionSource = "none";
@@ -1557,6 +1562,21 @@
           customCsvRow[key] = input.value;
           customCsvContent = buildCsvFromCustomState();
           quickCsvBuilderStatus.textContent = `Custom CSV updated (${customCsvHeaders.length} columns).`;
+        });
+        // product_type drives description/tags/metafield generation. Refresh those
+        // dependent fields on blur (not per-keystroke) when it's edited directly here,
+        // same as the Apply Product Type button path.
+        input.addEventListener("blur", async () => {
+          const idx = Number(input.getAttribute("data-csv-idx") || "-1");
+          const key = idx >= 0 ? customCsvHeaders[idx] : "";
+          if (key !== "product_type") return;
+          const preferred = String(customCsvRow.product_type || "").trim();
+          if (!preferred) return;
+          quickCsvBuilderStatus.textContent = `Product type changed to '${preferred}'. Refreshing description, tags, and metafields to match...`;
+          const refreshed = await refreshReviewedFieldsFromContext("product-type-change", { force: true });
+          quickCsvBuilderStatus.textContent = refreshed
+            ? `Product type changed to '${preferred}'. Description, tags, and metafields refreshed to match.`
+            : `Product type changed to '${preferred}'. No dependent fields needed refreshing.`;
         });
       });
     }
@@ -1976,7 +1996,7 @@
       });
     }
 
-    function applySelectedProductTypeToCustomCsv() {
+    async function applySelectedProductTypeToCustomCsv() {
       const preferred = String(quickNewProductTypeInput.value || "").trim() || String(quickProductTypeInput.value || "").trim();
       if (!preferred) {
         quickCsvBuilderStatus.textContent = "Enter or select a product type first.";
@@ -1987,6 +2007,9 @@
         customCsvHeaders = ["product_type", "title", "handle", "description", "metafields_json"];
       }
       customCsvRow.product_type = preferred;
+      // Lock product_type so the refresh below (and any later autofill) treats this
+      // as an explicit user choice and never silently reverts it.
+      customCsvUserEditedFields.add("product_type");
       if (!availableProductTypes.includes(preferred)) {
         if (!availableProductTypes.includes(preferred)) {
           availableProductTypes.push(preferred);
@@ -2003,6 +2026,15 @@
       renderCustomCsvFields();
       setCategoryCheckStatus(preferred);
       sendProductTypeFeedback(preferred);
+
+      // Product type drives description, bullets, tags, and metafield selection —
+      // re-run generation for those dependent fields now so they stay consistent
+      // with the newly applied type instead of describing the old one.
+      quickCsvBuilderStatus.textContent = `Product type set to '${preferred}'. Refreshing description, tags, and metafields to match...`;
+      const refreshed = await refreshReviewedFieldsFromContext("product-type-change", { force: true });
+      quickCsvBuilderStatus.textContent = refreshed
+        ? `Product type set to '${preferred}'. Description, tags, and metafields refreshed to match.`
+        : `Product type set to '${preferred}'. No dependent fields needed refreshing (all already manually edited).`;
     }
 
     async function generateCustomCsvFromImagesAndGoal() {
@@ -3128,6 +3160,9 @@
             completed.status === "succeeded" ? "Generate/import completed (background)." : "Generate/import failed (background).",
             out,
           );
+          if (completed.status === "succeeded") {
+            lastGeneratedCsvContent = csvContent;
+          }
         } else {
           const res = await apiPost("/api/workflow/import", payload);
           const data = await res.json();
@@ -3138,6 +3173,9 @@
             data.ok ? "Generate/import completed." : "Generate/import failed.",
             data,
           );
+          if (data.ok) {
+            lastGeneratedCsvContent = csvContent;
+          }
         }
 
         if ((origin === "quick" || origin === "quick-reviewed") && importResult && importResult.ok) {
@@ -3202,6 +3240,21 @@
       if (mode === "live" && liveConfirm !== "LIVE") {
         workflowStatus.textContent = "Live push requires confirmation text LIVE.";
         return;
+      }
+
+      // Block push if reviewed fields (product type, description, tags, etc.) were
+      // edited after the last successful generate — pushing here would silently
+      // publish the old draft and ignore the edit, which is exactly the failure
+      // mode this guard exists to prevent.
+      const hasReviewedFieldSession = customCsvHeaders.length && Object.keys(customCsvRow || {}).length;
+      if (hasReviewedFieldSession && lastGeneratedCsvContent) {
+        const currentCsv = buildCsvFromCustomState();
+        if (currentCsv !== lastGeneratedCsvContent) {
+          const message = "Reviewed fields have changed since the last generated draft (e.g. product type, description, or another field was edited). Click \"Generate Listing Draft\" to refresh the listing before pushing to Shopify.";
+          workflowStatus.textContent = message;
+          quickStatus.textContent = message;
+          return;
+        }
       }
 
       workflowPushDryBtn.disabled = true;

@@ -1249,6 +1249,29 @@ function buildConsistencyReference(productType, liveCategoryContext, listingCons
   };
 }
 
+const MATERIAL_CANDIDATES = ["stainless steel", "cast brass", "solid brass", "brass", "bronze", "aluminum", "steel", "copper", "plastic"];
+
+// Detects the merchant-stated material from free text (short description, notes, etc.)
+// using the same word list inferSignalsFromContext uses for the "material" listing field.
+// Shared so product-type ranking can catch a candidate type whose own name states a
+// different material than what the merchant explicitly told us (e.g. "Brass ..." type
+// suggested for a product the merchant described as aluminum).
+function detectStatedMaterial(text) {
+  const normalized = normalizeComparable(text);
+  for (const item of MATERIAL_CANDIDATES) {
+    if (normalized.includes(item)) return item;
+  }
+  return "";
+}
+
+// True when two detected material strings name different materials. Treats one being a
+// substring of the other (e.g. "brass" vs "solid brass") as the same material, not a conflict.
+function materialsConflict(a, b) {
+  if (!a || !b) return false;
+  if (a === b) return false;
+  return !a.includes(b) && !b.includes(a);
+}
+
 function inferSignalsFromContext(shortDescription, imageNames, productType, extraContext = "") {
   function inferFromText(text) {
     const raw = String(text || "");
@@ -1291,8 +1314,7 @@ function inferSignalsFromContext(shortDescription, imageNames, productType, extr
     else if (baseMatch) baseType = String(baseMatch[1]);
 
     let material = "";
-    const materialCandidates = ["stainless steel", "cast brass", "solid brass", "brass", "bronze", "aluminum", "steel", "copper", "plastic"];
-    for (const item of materialCandidates) {
+    for (const item of MATERIAL_CANDIDATES) {
       if (normalized.includes(item)) {
         material = item;
         break;
@@ -1721,8 +1743,11 @@ function buildStrongProductPrompt(options = {}) {
     "                    why it's the right choice, and feel confident enough to buy.",
     "  4. Be intentional. Every word earns its place. No filler. No generic placeholder sentences.",
     "     Bad: 'This product is perfect for all your lighting needs.'",
-    "     Good: 'Designed for in-ground landscape installation, this 12V brass well light delivers warm 3000K",
-    "           illumination with a low-profile profile that disappears into driveways, garden beds, and pathways.'",
+    "     Good: 'Engineered for quiet, high-airflow performance, this 3-blade ceiling fan pairs a reversible motor",
+    "           with a brushed-nickel finish that suits both modern and traditional rooms.'",
+    "     NOTE: the example above illustrates SENTENCE STRUCTURE AND SPECIFICITY only. Never let its product",
+    "     category, install type, or terminology influence the actual listing — those must come only from the",
+    "     merchant input, images, and store context provided below for THIS product.",
     "",
     // ─── INPUT PRIORITY ───────────────────────────────────────────────────────
     "INPUT PRIORITY (highest to lowest):",
@@ -1750,7 +1775,9 @@ function buildStrongProductPrompt(options = {}) {
     "",
     "  TITLE — the single most important SEO and conversion field:",
     "    Formula: [Brand] [Product Type] – [Key Differentiator], [Primary Use Case] w/ [1-2 Core Specs]",
-    "    Example: 'Ironsmith Lighting In-Ground Well Light – Solid Brass, 12V Landscape Fixture w/ 5W G5.3 LED (3000K)'",
+    "    Example: 'Ironsmith Lighting Ceiling Fan – Reversible 3-Blade Motor, Whisper-Quiet Bedroom Cooling w/ Remote (52in)'",
+    "    NOTE: this example illustrates FORMAT only (dash structure, spec compression, capitalization). Never let its",
+    "    product type or terminology carry over — the actual product type must come from this product's own evidence.",
     "    • Lead with the brand, then the product type buyers search for.",
     "    • Use the differentiator (material, feature, or install type) as the hook after the dash.",
     "    • End with the 1-2 specs that matter most to a buyer deciding between options.",
@@ -3858,6 +3885,13 @@ function suggestProductType(shopContext, shortDescription, imageNames) {
     };
   }
 
+  // A candidate whose own name states a material (e.g. "Brass Spotlight Bundle Kit")
+  // that conflicts with a material the merchant explicitly stated (e.g. "aluminum")
+  // is disqualified even if it lexically scores well — the merchant's stated fact is
+  // a higher-priority signal than a keyword match on an unrelated part of the type name.
+  const statedMaterial = detectStatedMaterial(shortDescription);
+  let materialConflictDetected = false;
+
   const rankedTypes = productTypes
     .map((type) => {
       const typeTokens = tokenizeForSuggestion(type);
@@ -3865,6 +3899,13 @@ function suggestProductType(shopContext, shortDescription, imageNames) {
       for (const token of typeTokens) {
         if (tokens.has(token)) score += 3;
         else if ([...tokens].some((t) => t.includes(token) || token.includes(t))) score += 1;
+      }
+      if (statedMaterial) {
+        const candidateMaterial = detectStatedMaterial(type);
+        if (materialsConflict(statedMaterial, candidateMaterial)) {
+          materialConflictDetected = true;
+          score = 0;
+        }
       }
       return { type, score };
     })
@@ -3886,8 +3927,8 @@ function suggestProductType(shopContext, shortDescription, imageNames) {
     productType: best.type,
     source: "store-match",
     rankedSuggestions: rankedTypes.map((x) => x.type),
-    confidence: Math.min(88, 45 + best.score * 8),
-    needsUserReview: best.score < 6,
+    confidence: materialConflictDetected ? Math.min(60, 45 + best.score * 8) : Math.min(88, 45 + best.score * 8),
+    needsUserReview: best.score < 6 || materialConflictDetected,
   };
 }
 
