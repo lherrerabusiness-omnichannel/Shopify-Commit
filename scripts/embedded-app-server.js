@@ -1302,6 +1302,10 @@ function inferSignalsFromContext(shortDescription, imageNames, productType, extr
     ]);
 
     const explicitSkuMatch = upper.match(/\bSKU\s*[:#-]?\s*([A-Z0-9][A-Z0-9/_-]{2,})\b/);
+    // Range/dual-value voltage notation ("12 to 24V", "12-24V", "24/36V") must be checked
+    // before the single-value match below — otherwise a range like "12 to 24V" only matches
+    // on "24V" (the number immediately adjacent to "V"), silently dropping the low end.
+    const voltageRangeMatch = upper.match(/\b(\d{1,3})\s*(?:-|TO|\/)\s*(\d{1,3})\s?(?:V|VOLT|VOLTS)\b/);
     const voltageMatch = upper.match(/\b(12|24|110|120|220|230|240)\s?(?:V|VOLT|VOLTS)\b/);
     const wattageMatch = upper.match(/\b([1-9][0-9]{0,2})\s?(?:W|WATT|WATTS)\b/);
     const lumenMatch = upper.match(/\b([1-9][0-9]{1,4})\s?(LM|LUMEN)\b/);
@@ -1357,7 +1361,7 @@ function inferSignalsFromContext(shortDescription, imageNames, productType, extr
 
     return {
       modelCode,
-      voltage: voltageMatch ? `${voltageMatch[1]}V` : "",
+      voltage: voltageRangeMatch ? `${voltageRangeMatch[1]}-${voltageRangeMatch[2]}V` : (voltageMatch ? `${voltageMatch[1]}V` : ""),
       wattage: wattageMatch ? `${wattageMatch[1]}W` : "",
       lumenOutput: lumenMatch ? String(lumenMatch[1]) : "",
       colorTemp: colorTempMatch ? `${colorTempMatch[1]}K` : "",
