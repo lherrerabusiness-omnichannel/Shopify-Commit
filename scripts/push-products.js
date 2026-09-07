@@ -467,10 +467,22 @@ function isHandleConflictUserError(userErrors) {
   });
 }
 
+// A handle collision (or a retried create) only recovers onto an existing Shopify
+// product when its SKU matches (or either side has no SKU to compare). A different
+// SKU means a genuinely different product that merely computed the same title/handle
+// — treating it as "recovered" would silently overwrite an unrelated listing's price,
+// SKU, and images. Mirrors the same guard already used in the main update-lookup path.
+function isSafeHandleRecoveryMatch(existing, incomingSku) {
+  const existingSku = String(existing && existing.firstVariantSku || "").trim();
+  const wantedSku = String(incomingSku || "").trim();
+  return !existingSku || !wantedSku || existingSku === wantedSku;
+}
+
 async function createProductIdempotent(productInput, options = {}) {
   const maxRetries = Number.isFinite(Number(options.maxRetries))
     ? Number(options.maxRetries)
     : CREATE_RECOVERY_MAX_RETRIES;
+  const incomingSku = String(options.incomingSku || "").trim();
 
   let attempt = 0;
   while (attempt < Math.max(1, maxRetries)) {
@@ -480,6 +492,13 @@ async function createProductIdempotent(productInput, options = {}) {
       if (isHandleConflictUserError(created.userErrors) && productInput.handle) {
         const existing = await findProductByHandle(productInput.handle);
         if (existing) {
+          if (!isSafeHandleRecoveryMatch(existing, incomingSku)) {
+            throw new Error(
+              `Handle "${productInput.handle}" is already used by "${existing.title}" (SKU "${existing.firstVariantSku}"), `
+              + `which does not match this product's SKU "${incomingSku}". Refusing to overwrite a different product — `
+              + `use a distinct title/handle, or set the correct target SKU.`
+            );
+          }
           return {
             product: existing,
             userErrors: [],
@@ -496,7 +515,7 @@ async function createProductIdempotent(productInput, options = {}) {
 
       if (productInput.handle) {
         const existing = await findProductByHandle(productInput.handle);
-        if (existing) {
+        if (existing && isSafeHandleRecoveryMatch(existing, incomingSku)) {
           return {
             product: existing,
             userErrors: [],
@@ -1292,6 +1311,7 @@ async function pushProducts(products, dryRun) {
 
       const result = await createProductIdempotent(productInput, {
         maxRetries: CREATE_RECOVERY_MAX_RETRIES,
+        incomingSku: variantIntent.sku,
       });
       if (result.userErrors.length) {
         console.error(`[${label}] Failed create: ${product.title}`);
