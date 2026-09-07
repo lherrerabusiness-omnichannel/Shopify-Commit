@@ -1754,13 +1754,31 @@ function buildStrongProductPrompt(options = {}) {
     "     category, install type, or terminology influence the actual listing — those must come only from the",
     "     merchant input, images, and store context provided below for THIS product.",
     "",
-    // ─── INPUT PRIORITY ───────────────────────────────────────────────────────
-    "INPUT PRIORITY (highest to lowest):",
-    "  1. MERCHANT INPUT — exact facts. Preserve SKU, price, specs, and product intent precisely. Elevate language only.",
-    "  2. PRODUCT IMAGES — visual ground truth for type, materials, form factor, finish, and use context.",
+    // ─── INPUT PRIORITY AND WEIGHT ────────────────────────────────────────────
+    "INPUT PRIORITY AND WEIGHT (this determines how much each source may influence the listing):",
+    "  1. MERCHANT INPUT — roughly 80-90% of the authority behind this listing. It is the dominant source of",
+    "     truth for description content, category selection, and metafields. Preserve SKU, price, specs, and",
+    "     product intent exactly as given. Elevate language only — never contradict or soften an explicit fact",
+    "     the merchant stated.",
+    "  2. PRODUCT IMAGES — roughly 10% influence, REFINEMENT ONLY. Use images to CONFIRM or SHARPEN a specific",
+    "     detail the merchant's text did not state (e.g. a visible sub-variant, exact finish, or form factor).",
+    "     Images must NEVER introduce a major unstated technical claim, and must NEVER override or contradict",
+    "     anything the merchant explicitly wrote. Product photography frequently includes brand mockups, bundled",
+    "     or compatible accessories, or staged context that is not literally the item being sold — treat images",
+    "     as corroborating evidence, not a primary source of truth.",
     "  3. CATEGORY RESEARCH — draw on your knowledge of how this product category is sold and searched online.",
     "     What keywords do buyers search? What titles outperform in this category? What tags drive collections?",
     "  4. BRAND & CATALOG CONTEXT — align tone, taxonomy, and tags with the store conventions provided below.",
+    "",
+    // ─── ASSUMPTION BOUNDARY ──────────────────────────────────────────────────
+    "ASSUMPTION BOUNDARY (hard rule, not a preference):",
+    "  You MAY freely improve style, phrasing, structure, and word choice — take sparse or bland merchant input",
+    "  and make it read compellingly. You MAY NOT invent or assume an unstated TECHNICAL fact: a spec, rating,",
+    "  certification, material, dimension, voltage, wattage, or current type that was not provided in the",
+    "  merchant input or clearly visible in the images. If a high-value technical field cannot be confidently",
+    "  determined from the evidence given, leave it empty and name it in missing_high_value_fields (see output",
+    "  schema) instead of guessing. This matters beyond listing quality: guessing wrong on electrical specs",
+    "  (voltage, wattage, current type) is a real safety and liability risk, not just a quality issue.",
     "",
     // ─── FIELD MAP ────────────────────────────────────────────────────────────
     "FIELD MAP (JSON key → Shopify destination):",
@@ -2765,6 +2783,11 @@ async function aiGenerateProductCopy(options = {}) {
     '  "install_type"      – Installation method if determinable (e.g. "in-ground", "surface mount", "recessed", "pendant"). Empty string if unknown.',
     '  "ignored_images"     – JSON array of image file names that appear irrelevant, non-product, or unsafe to use.',
     '  "image_quality_notes" – Short note about image usefulness or problems. Empty string if no issues.',
+    '  "missing_high_value_fields" – JSON array of short, specific strings naming high-value fields you could NOT',
+    '                       confidently determine from the merchant input or images (e.g. "voltage", "wattage",',
+    '                       "color temperature", "current type (AC/DC)", "IP rating"). Prioritize safety-relevant',
+    "                       electrical/technical specs. Empty array if nothing important is missing. Do not list",
+    "                       cosmetic details that don't materially affect listing quality or safety.",
     "",
     "Return ONLY the JSON object. No markdown. No explanation. No code fences.",
   ].filter(Boolean).join("\n");
@@ -6328,6 +6351,7 @@ function createServer() {
           product_type_new_suggestion: rawAiFields.product_type_new_suggestion || "",
           ignored_images: rawAiFields.ignored_images || [],
           image_quality_notes: rawAiFields.image_quality_notes || "",
+          missing_high_value_fields: Array.isArray(rawAiFields.missing_high_value_fields) ? rawAiFields.missing_high_value_fields : [],
         } : null;
         const csvContent = [
           draft.headers.map((header) => csvEscape(header)).join(","),
@@ -6355,6 +6379,7 @@ function createServer() {
             brandProfile,
             aiGenerated,
             generationPrompt,
+            missingHighValueFields: (aiBuffer && aiBuffer.missing_high_value_fields) || [],
             inputGuidance: buildInputGuidance({
               shortDescription,
               imageNames,
@@ -6593,6 +6618,7 @@ function createServer() {
           product_type_new_suggestion: rawAiFields.product_type_new_suggestion || "",
           ignored_images: rawAiFields.ignored_images || [],
           image_quality_notes: rawAiFields.image_quality_notes || "",
+          missing_high_value_fields: Array.isArray(rawAiFields.missing_high_value_fields) ? rawAiFields.missing_high_value_fields : [],
         } : null;
         const csvContent = [
           headers.map((header) => csvEscape(header)).join(","),
@@ -6618,6 +6644,7 @@ function createServer() {
             productTypes,
             aiGenerated,
             generationPrompt,
+            missingHighValueFields: (aiBuffer && aiBuffer.missing_high_value_fields) || [],
             inputGuidance: buildInputGuidance({
               shortDescription,
               imageNames,

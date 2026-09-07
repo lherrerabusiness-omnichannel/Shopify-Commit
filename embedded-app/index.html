@@ -770,6 +770,10 @@
               </div>
             </div>
           </div>
+          <div id="missingInfoCallout" class="status-list" style="display:none; margin-top:10px; border-left:3px solid var(--primary, #2563eb); padding-left:10px;">
+            <strong>This listing could be even better with:</strong>
+            <ul id="missingInfoCalloutList" style="margin:6px 0 0 18px; padding:0;"></ul>
+          </div>
           <details class="expando" style="margin-top:10px;">
             <summary>Use Existing CSV Instead (optional)</summary>
             <div class="expando-body">
@@ -1128,6 +1132,23 @@
     const quickStatus = document.getElementById("quickStatus");
     const pilotAuditStatus = document.getElementById("pilotAuditStatus");
     const quickCsvBuilderStatus = document.getElementById("quickCsvBuilderStatus");
+    const missingInfoCallout = document.getElementById("missingInfoCallout");
+    const missingInfoCalloutList = document.getElementById("missingInfoCalloutList");
+
+    // Renders the "this listing could be even better with..." callout. The AI names
+    // fields it could not confidently determine (per the assumption boundary: it must
+    // never guess unstated technical facts) rather than silently leaving them wrong or
+    // fabricating a value — most important for safety-relevant specs like voltage/wattage.
+    function renderMissingInfoCallout(fields) {
+      const list = Array.isArray(fields) ? fields.filter(Boolean) : [];
+      if (!list.length) {
+        missingInfoCallout.style.display = "none";
+        missingInfoCalloutList.innerHTML = "";
+        return;
+      }
+      missingInfoCalloutList.innerHTML = list.map((item) => `<li>${sanitize(String(item))}</li>`).join("");
+      missingInfoCallout.style.display = "block";
+    }
     const quickPromptOutput = document.getElementById("quickPromptOutput");
     const quickCopyPromptBtn = document.getElementById("quickCopyPromptBtn");
     const quickCustomCsvDownloadBtn = document.getElementById("quickCustomCsvDownloadBtn");
@@ -2003,6 +2024,7 @@
         }
         renderCustomCsvFields();
         rememberAutoRefreshContext();
+        renderMissingInfoCallout(data.template.missingHighValueFields);
         quickCsvBuilderStatus.textContent = Array.isArray(options.overwriteFields) && options.overwriteFields.length
           ? "Context-sensitive fields refreshed using your latest description, images, and brand context."
           : "Missing fields auto-filled using available listing, image, template, and brand context.";
@@ -2156,6 +2178,7 @@
         }
         renderCustomCsvFields();
         rememberAutoRefreshContext();
+        renderMissingInfoCallout(data.template.missingHighValueFields);
         const aiGenerated = Boolean(data.template.aiGenerated);
         if (aiGenerated) {
           const usedInputs = [];
