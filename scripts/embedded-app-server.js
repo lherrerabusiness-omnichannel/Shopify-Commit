@@ -13,6 +13,25 @@ const {
 
 dotenv.config();
 
+// Resolves the Shopify access token for a shop, checking the SHOPIFY_ACCESS_TOKEN
+// environment variable first (durable across deploys) before falling back to the
+// persisted encrypted token file (which lives on local disk and can be lost on a
+// redeploy — see INFRASTRUCTURE_NOTES.md). Mirrors the resolution order already used
+// by push-products.js, so every Shopify-calling code path in this app is equally
+// durable instead of only the push script being fixed while internal lookups
+// (taxonomy context, SKU-duplicate check, /api/locations, /api/store/products)
+// silently kept reading the fragile file-only path.
+function resolveShopAccessToken(shop) {
+  const normalizedShop = String(shop || "").trim().toLowerCase();
+  const envStore = String(process.env.SHOPIFY_STORE_DOMAIN || "").trim().toLowerCase();
+  const envToken = String(process.env.SHOPIFY_ACCESS_TOKEN || "").trim();
+  if (envToken && normalizedShop && envStore && normalizedShop === envStore) {
+    return envToken;
+  }
+  const tokenEntry = getTokenByShop(shop);
+  return tokenEntry && tokenEntry.accessToken ? String(tokenEntry.accessToken) : "";
+}
+
 const PORT = Number(process.env.EMBEDDED_UI_PORT || process.env.PORT || 4320);
 // Default to 0.0.0.0 so the server is reachable when hosted on a PaaS (Render/Railway/etc.),
 // which requires binding to all interfaces rather than just loopback. Still works fine for
@@ -1125,8 +1144,7 @@ async function fetchCategoryContextFromShopify(shop, accessToken, productType) {
 }
 
 async function getCategoryContextForShop(shopContext, productType) {
-  const tokenEntry = getTokenByShop(shopContext && shopContext.shop);
-  const accessToken = tokenEntry && tokenEntry.accessToken ? String(tokenEntry.accessToken) : "";
+  const accessToken = resolveShopAccessToken(shopContext && shopContext.shop);
   if (!accessToken) {
     return buildEmptyCategoryContext(productType, "no-shop-token");
   }
@@ -5924,8 +5942,7 @@ function createServer() {
           return sendJson(res, 400, { ok: false, error: "sku query parameter is required." });
         }
         const shopContext = getContext();
-        const tokenEntry = getTokenByShop(shopContext.shop);
-        const accessToken = tokenEntry && tokenEntry.accessToken ? String(tokenEntry.accessToken) : "";
+        const accessToken = resolveShopAccessToken(shopContext.shop);
         if (!accessToken) {
           // No token yet — cannot check; report no conflict so flow is not blocked
           return sendJson(res, 200, { ok: true, exists: false, sku, reason: "no-token" });
@@ -6004,8 +6021,7 @@ function createServer() {
     if (req.method === "GET" && requestUrl.pathname === "/api/store/products") {
       try {
         const shopContext = getContext();
-        const tokenEntry = getTokenByShop(shopContext.shop);
-        const accessToken = tokenEntry && tokenEntry.accessToken ? String(tokenEntry.accessToken) : "";
+        const accessToken = resolveShopAccessToken(shopContext.shop);
         if (!accessToken) {
           return sendJson(res, 200, { ok: true, products: [], reason: "no-token" });
         }
@@ -6131,8 +6147,7 @@ function createServer() {
     if (req.method === "GET" && requestUrl.pathname === "/api/locations") {
       try {
         const shopContext = getContext();
-        const tokenEntry = getTokenByShop(shopContext.shop);
-        const accessToken = tokenEntry && tokenEntry.accessToken ? String(tokenEntry.accessToken) : "";
+        const accessToken = resolveShopAccessToken(shopContext.shop);
         if (!accessToken) return sendJson(res, 401, { ok: false, error: "No access token. Re-authenticate." });
         const gql = `query ShopLocations { locations(first: 50) { nodes { id name isActive isPrimary } } }`;
         const response = await fetch(
