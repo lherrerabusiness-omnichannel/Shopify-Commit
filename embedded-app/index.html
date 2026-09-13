@@ -760,6 +760,10 @@
                               <input id="quickSkuInput" type="text" placeholder="e.g. WLC-HM-KIT-5WLED" style="width:100%;box-sizing:border-box;" />
                             </div>
                           </div>
+                          <div id="gapFillingBoxes" style="display:none;margin-top:8px;">
+                            <div class="quick-note" style="margin-bottom:4px;">Missing details that would strengthen this listing</div>
+                            <div id="gapFillingBoxesList" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
+                          </div>
             </div>
             <div>
               <div class="quick-note" style="margin-bottom:8px;">Product type selection</div>
@@ -1216,6 +1220,8 @@
     const quickCsvBuilderStatus = document.getElementById("quickCsvBuilderStatus");
     const missingInfoCallout = document.getElementById("missingInfoCallout");
     const missingInfoCalloutList = document.getElementById("missingInfoCalloutList");
+    const gapFillingBoxes = document.getElementById("gapFillingBoxes");
+    const gapFillingBoxesList = document.getElementById("gapFillingBoxesList");
     const multiTargetQueueStatus = document.getElementById("multiTargetQueueStatus");
     const retryFailedMultiTargetsBtn = document.getElementById("retryFailedMultiTargetsBtn");
     let lastMultiTargetOutputPath = "";
@@ -1295,6 +1301,90 @@
       missingInfoCalloutList.innerHTML = list.map((item) => `<li>${sanitize(String(item))}</li>`).join("");
       missingInfoCallout.style.display = "block";
     }
+
+    // Blank-by-default input boxes for store-specific gaps (e.g. a shoe template's
+    // "US Shoe Size") that the store's own metafield schema says are relevant to this
+    // product type but aren't filled yet. Generic by construction: unresolvedMetafields
+    // is computed server-side from the store's real schema, not any fixed field list.
+    function renderGapFillingBoxes(unresolvedMetafields) {
+      latestUnresolvedMetafields = Array.isArray(unresolvedMetafields) ? unresolvedMetafields.filter((x) => x && x.key) : [];
+      const top = latestUnresolvedMetafields.slice(0, 5);
+      if (!top.length) {
+        gapFillingBoxes.style.display = "none";
+        gapFillingBoxesList.innerHTML = "";
+        return;
+      }
+      gapFillingBoxesList.innerHTML = top.map((entry) => {
+        const key = sanitize(entry.key);
+        const label = sanitize(entry.label || entry.key);
+        const value = sanitize(gapAnswerValues[entry.key] || "");
+        return `
+          <div style="flex:1;min-width:160px;">
+            <label style="display:block;font-size:0.72rem;color:var(--sub);margin:0 0 3px;text-transform:uppercase;letter-spacing:0.03em;">${label}</label>
+            <input type="text" data-gap-key="${key}" value="${value}" placeholder="Add ${label.toLowerCase()}..." style="width:100%;box-sizing:border-box;" />
+          </div>
+        `;
+      }).join("");
+      gapFillingBoxesList.querySelectorAll("input[data-gap-key]").forEach((input) => {
+        input.addEventListener("blur", () => handleGapAnswerInput(input));
+        input.addEventListener("keydown", (event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            input.blur();
+          }
+        });
+      });
+      gapFillingBoxes.style.display = "block";
+    }
+
+    // Merges every confirmed gap-box answer into customCsvRow.metafields_json. Safe to
+    // call repeatedly - it always wins over whatever else is currently in that field,
+    // same "user input beats AI/rule" guarantee already used for price/SKU.
+    function applyGapAnswersToCustomCsvRow() {
+      const keys = Object.keys(gapAnswerValues);
+      if (!keys.length) return;
+      let current = {};
+      try {
+        const parsed = JSON.parse(String(customCsvRow.metafields_json || "").trim() || "{}");
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) current = parsed;
+      } catch { /* ignore malformed existing JSON, start fresh */ }
+      customCsvRow.metafields_json = JSON.stringify({ ...current, ...gapAnswerValues });
+      if (!customCsvHeaders.includes("metafields_json")) customCsvHeaders.push("metafields_json");
+      renderCustomCsvFields();
+    }
+
+    function handleGapAnswerInput(input) {
+      const key = input.getAttribute("data-gap-key") || "";
+      const value = String(input.value || "").trim();
+      if (!key || !value) return;
+      const entry = latestUnresolvedMetafields.find((x) => x.key === key);
+      const label = entry ? entry.label : key;
+      gapAnswerValues[key] = value;
+      applyGapAnswersToCustomCsvRow();
+      const idx = pendingGapAnswers.findIndex((g) => g.key === key);
+      const record = { key, label, value };
+      if (idx >= 0) pendingGapAnswers[idx] = record; else pendingGapAnswers.push(record);
+      quickCsvBuilderStatus.textContent = `Saved "${label}". Refreshing the listing with this new detail...`;
+      clearTimeout(gapAnswerRefreshTimer);
+      gapAnswerRefreshTimer = setTimeout(runGapAnswerRefresh, 600);
+    }
+
+    // Feeds the newly answered gap(s) back into the same AI refresh already used when
+    // the description or product type changes, so the description/tags/etc. can be
+    // strengthened using the new fact - not just the one field it directly fills.
+    async function runGapAnswerRefresh() {
+      if (!customCsvHeaders.length || !pendingGapAnswers.length) return;
+      const answersToSend = pendingGapAnswers.slice();
+      const refreshed = await autofillMissingReviewedFields({
+        overwriteFields: getOverwriteFieldsForRefresh(),
+        lockedFields: Array.from(customCsvUserEditedFields),
+        gapAnswers: answersToSend,
+      });
+      if (refreshed) {
+        pendingGapAnswers = pendingGapAnswers.filter((g) => !answersToSend.some((a) => a.key === g.key));
+        quickCsvBuilderStatus.textContent = "Listing refreshed using your new detail.";
+      }
+    }
     const quickPromptOutput = document.getElementById("quickPromptOutput");
     const quickCopyPromptBtn = document.getElementById("quickCopyPromptBtn");
     const quickCustomCsvDownloadBtn = document.getElementById("quickCustomCsvDownloadBtn");
@@ -1339,6 +1429,14 @@
     let customCsvRow = {};
     let customCsvContent = "";
     let customCsvUserEditedFields = new Set();
+    let latestUnresolvedMetafields = [];
+    // key -> value the user has directly typed into a gap-filling box. Kept so it can be
+    // re-applied on top of every later autofill response - the user's own answer always
+    // wins over anything the AI produces for the same field, same rule already used for
+    // the dedicated Price/SKU inputs.
+    let gapAnswerValues = {};
+    let pendingGapAnswers = [];
+    let gapAnswerRefreshTimer = null;
     // Snapshot of the CSV content that was actually sent to the last successful
     // /api/workflow/import call. Used to detect reviewed-field edits (e.g. a product
     // type change) made after generation but before push, so push can be blocked
@@ -2285,6 +2383,7 @@
           refreshSuggestedProductType: Boolean(options.refreshSuggestedProductType),
           overwriteFields: Array.isArray(options.overwriteFields) ? options.overwriteFields : [],
           lockedFields: Array.isArray(options.lockedFields) ? options.lockedFields : [],
+          gapAnswers: Array.isArray(options.gapAnswers) ? options.gapAnswers : [],
         });
         const data = await res.json();
         if (!res.ok || !data.ok || !data.template) {
@@ -2315,13 +2414,24 @@
             customCsvRow.sku_values = uiSkuRaw;
           }
         }
-        customCsvContent = String(data.template.csvContent || buildCsvFromCustomState());
+        // Re-apply every gap-filling box answer given so far — same "user input always
+        // wins" rule as price/SKU above. autofill replaces the whole row, including
+        // metafields_json, so anything the AI produced for these keys this call must
+        // not override what the user already typed.
+        applyGapAnswersToCustomCsvRow();
+        // Once any gap box has been answered, always rebuild the CSV from the corrected
+        // row instead of trusting the server's raw response — that response was built
+        // before the reapply above and could still carry a conflicting AI-produced value
+        // for the same metafield key.
+        customCsvContent = Object.keys(gapAnswerValues).length
+          ? buildCsvFromCustomState()
+          : String(data.template.csvContent || buildCsvFromCustomState());
         setGeneratedPrompt(data.template.generationPrompt || "");
         if (data.template.suggestedProductType) {
           latestSuggestedProductType = String(data.template.suggestedProductType || "").trim();
           quickProductTypeInput.value = String(customCsvRow.product_type || latestSuggestedProductType || "").trim();
           // Update product type options with top suggestions
-          const topSuggestions = Array.isArray(data.template.topProductTypeSuggestions) 
+          const topSuggestions = Array.isArray(data.template.topProductTypeSuggestions)
             ? data.template.topProductTypeSuggestions.slice(0, 3)
             : [];
           renderProductTypeOptions(topSuggestions);
@@ -2329,6 +2439,7 @@
         renderCustomCsvFields();
         rememberAutoRefreshContext();
         renderMissingInfoCallout(data.template.missingHighValueFields);
+        renderGapFillingBoxes(data.template.unresolvedMetafields);
         quickCsvBuilderStatus.textContent = Array.isArray(options.overwriteFields) && options.overwriteFields.length
           ? "Context-sensitive fields refreshed using your latest description, images, and brand context."
           : "Missing fields auto-filled using available listing, image, template, and brand context.";
@@ -2465,6 +2576,10 @@
         }
         customCsvContent = buildCsvFromCustomState();
         customCsvUserEditedFields.clear();
+        // Fresh product generation - any gap answers belonged to whatever was reviewed before.
+        gapAnswerValues = {};
+        pendingGapAnswers = [];
+        clearTimeout(gapAnswerRefreshTimer);
         setGeneratedPrompt(data.template.generationPrompt || "");
         latestSuggestedProductType = String(data.template.suggestedProductType || "");
         latestSuggestionSource = String(data.template.suggestionSource || "store-match");
@@ -2483,6 +2598,7 @@
         renderCustomCsvFields();
         rememberAutoRefreshContext();
         renderMissingInfoCallout(data.template.missingHighValueFields);
+        renderGapFillingBoxes(data.template.unresolvedMetafields);
         const aiGenerated = Boolean(data.template.aiGenerated);
         if (aiGenerated) {
           const usedInputs = [];

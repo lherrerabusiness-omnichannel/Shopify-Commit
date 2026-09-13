@@ -297,7 +297,7 @@ Two options, need the user's explicit call:
     conventions (MR16, GU10, etc.) specifically, documented as a deliberate,
     named exception to the general rule - not a blanket loosening of it.
 
-## 8c. Dynamic Gap-Filling Boxes (foundation built, commit 8eb2565; UI not yet built)
+## 8c. Dynamic Gap-Filling Boxes (built)
 
 STATUS UPDATE: while scoping the "de-lighting-ify" request (make field mapping
 generic per store/product-type instead of hardcoded lighting fields), found that
@@ -340,21 +340,54 @@ structure, keep the app in a "surface it, let the user drive" posture:
     is replaced with the next-most-valuable still-missing question - the set of 5
     continuously tracks the current top gaps rather than staying static.
 
-### Open questions before implementation
+### How the open questions were resolved
 
-1. For each box to be a real fillable field (not just a sentence to read), the AI's
-   missing_high_value_fields output likely needs to become structured (an actual
-   field key like "voltage", not just a free-text phrase like "the voltage rating")
-   so the app knows exactly where a typed answer should go. Confirm this is an
-   acceptable schema change.
-2. When the user types directly into one of these boxes (e.g. types "12V" into a
-   Voltage box), should that value be used directly as the field value (bypassing
-   AI reinterpretation, since the user is directly answering a specific technical
-   question), or should it be treated like a description edit and re-run through
-   generation? Leaning toward "used directly" but want confirmation.
-3. Ranking: if there are more than 5 candidate gaps, how should the top 5 be
-   chosen - AI's own stated order, or a fixed priority (safety-relevant electrical
-   specs first, then everything else)?
+1. **Structured field key**: resolved without changing the AI's free-text output at
+   all. The boxes bind only to `unresolvedMetafields` ({key, label} pairs, already
+   fully generic and already delivered by both template endpoints) - not to the
+   AI's free-text `missing_high_value_fields` list, which stays exactly as-is and
+   keeps rendering as the existing read-only callout underneath. This avoided a
+   second prompt-schema change stacked on top of 8d's operational-metafields change
+   in the same session.
+2. **Typing directly into a box**: neither pure "use directly" nor a blind full
+   regeneration - the value is saved immediately (never lost, regardless of what
+   the AI does next) AND fed back into a refresh of the rest of the listing so it
+   can strengthen the description/tags/etc. too. See "Building on the previous
+   draft" below for exactly how that refresh is scoped so it can't discard or
+   contradict the answer that triggered it.
+3. **Ranking**: the top 5 are taken directly from `unresolvedMetafields`'s existing
+   order, which is already the store's own relevance ranking (`selectRelevantMetafieldsForPrompt`'s
+   score, descending) - no separate ranking logic needed.
+4. **Stale gaps fixed as part of this build**: `computeUnresolvedMetafields` previously
+   only checked what the AI produced in that one call, not what was already saved on
+   the product from an earlier answer. Fixed so a metafield already filled on the
+   incoming row (whether from a prior gap-box answer or anything else) also counts
+   as resolved - otherwise an already-answered box could wrongly reappear on the
+   next refresh.
+
+### Building on the previous draft (not a blind regenerate)
+
+When a gap box answer triggers a refresh, the AI is not asked to start over. Two
+things are added to its context, both flowing into the same prompt used everywhere
+else in this file:
+
+- **Newly answered gaps** — the box's label and the typed value, presented as a
+  merchant-authority fact (same weight as the original short description), not a
+  suggestion.
+- **Previous draft** — the title/description/tags/key features already generated
+  and reviewed for this exact product, added as a new, explicitly low-weight tier
+  in the existing INPUT PRIORITY list: "roughly 5% influence, CONTINUITY ONLY... not
+  a source of facts... if it conflicts with the merchant input or a newly answered
+  gap, the newer fact wins and the draft must be updated to match, not preserved."
+  This lets each answered gap strengthen the whole listing cumulatively instead of
+  resetting it, while guaranteeing the previous wording can never outrank a new
+  fact or the original merchant input.
+
+Regardless of how well the AI uses the new fact, the typed value is also written
+directly into that metafield client-side and re-applied after every refresh
+response - the same "user input always wins over the rule" guarantee already used
+for the dedicated Price/SKU inputs - so the answer is never lost even in a weak AI
+response.
 
 ## 8d. Operational vs. Customer-Facing Metafields (built)
 

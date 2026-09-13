@@ -1682,6 +1682,14 @@ function buildCleanListingSummary(options = {}) {
   return `${lead}${specText}`.replace(/\s+/g, " ").slice(0, 420).trim();
 }
 
+function stripHtmlForPrompt(html) {
+  return String(html || "")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 400);
+}
+
 function buildStrongProductPrompt(options = {}) {
   const shortDescription = String(options.shortDescription || "").trim();
   const imageNames = Array.isArray(options.imageNames) ? options.imageNames.map((x) => String(x || "").trim()).filter(Boolean) : [];
@@ -1712,7 +1720,18 @@ function buildStrongProductPrompt(options = {}) {
       limit: 12,
     });
   const userPriority = extractPriorityFieldsFromUserInput(shortDescription, inferred);
-  
+  const gapAnswers = Array.isArray(options.gapAnswers)
+    ? options.gapAnswers
+      .map((entry) => ({ label: String(entry && entry.label || "").trim(), value: String(entry && entry.value || "").trim() }))
+      .filter((entry) => entry.label && entry.value)
+    : [];
+  const previousDraft = {
+    title: String(row.title || row.product_title || "").trim(),
+    description: stripHtmlForPrompt(String(row.description || row.body_html || "")),
+    tags: String(row.tags || "").trim(),
+    keyFeatures: String(row.key_features || row.features || "").trim().split("|").filter(Boolean).join(", "),
+  };
+
   // Calculate image weight influence: new images should only influence output proportionally
   // If 1 new image + 3 existing = 25% influence on new, 75% on existing context
   // If 3 new images + 9 existing = 25% influence on new, 75% on existing context
@@ -1762,6 +1781,11 @@ function buildStrongProductPrompt(options = {}) {
     `User-provided price: ${userPriority.price || "(none)"}`,
     `User-priority extracted fields: model=${userPriority.modelCode || ""}, base_type=${userPriority.baseType || ""}, wattage=${userPriority.wattage || ""}, voltage=${userPriority.voltage || ""}, color_temp=${userPriority.colorTemp || ""}, ip_rating=${userPriority.ipRating || ""}`,
     `Inferred specs from names/context: model=${inferred.modelCode || ""}, voltage=${inferred.voltage || ""}, wattage=${inferred.wattage || ""}, lumens=${inferred.lumenOutput || ""}, color_temp=${inferred.colorTemp || ""}, base_type=${inferred.baseType || ""}, install_type=${inferred.installType || ""}, material=${inferred.material || ""}, finish=${inferred.finish || ""}, ip_rating=${inferred.ipRating || ""}`,
+    `Newly answered gaps (merchant-authority facts - see PREVIOUS DRAFT / merchant input priority above): ${gapAnswers.length ? gapAnswers.map((g) => `${g.label} = ${g.value}`).join("; ") : "(none)"}`,
+    `Previous draft title (continuity only, not a fact source): ${previousDraft.title || "(none)"}`,
+    `Previous draft description (continuity only, not a fact source): ${previousDraft.description || "(none)"}`,
+    `Previous draft tags (continuity only, not a fact source): ${previousDraft.tags || "(none)"}`,
+    `Previous draft key features (continuity only, not a fact source): ${previousDraft.keyFeatures || "(none)"}`,
   ];
 
   // Strip signal lines that carry no value — prevents padding the prompt with empty "(none)" entries.
@@ -1806,7 +1830,8 @@ function buildStrongProductPrompt(options = {}) {
     "  1. MERCHANT INPUT — roughly 80-90% of the authority behind this listing. It is the dominant source of",
     "     truth for description content, category selection, and metafields. Preserve SKU, price, specs, and",
     "     product intent exactly as given. Elevate language only — never contradict or soften an explicit fact",
-    "     the merchant stated.",
+    "     the merchant stated. Any entry under 'Newly answered gaps' below carries this same authority — it is",
+    "     the merchant directly closing a gap you asked about, not a suggestion.",
     "  2. PRODUCT IMAGES — roughly 10% influence, REFINEMENT ONLY. Use images to CONFIRM or SHARPEN a specific",
     "     detail the merchant's text did not state (e.g. a visible sub-variant, exact finish, or form factor).",
     "     Images must NEVER introduce a major unstated technical claim, and must NEVER override or contradict",
@@ -1816,6 +1841,11 @@ function buildStrongProductPrompt(options = {}) {
     "  3. CATEGORY RESEARCH — draw on your knowledge of how this product category is sold and searched online.",
     "     What keywords do buyers search? What titles outperform in this category? What tags drive collections?",
     "  4. BRAND & CATALOG CONTEXT — align tone, taxonomy, and tags with the store conventions provided below.",
+    "  5. PREVIOUS DRAFT (present only when refining an already-reviewed listing) — roughly 5% influence,",
+    "     CONTINUITY ONLY. This is your own earlier output for this exact product, given back to you so wording",
+    "     and structure carry forward smoothly instead of resetting from scratch. It is NOT a source of facts and",
+    "     has no authority of its own — refine and strengthen it, but if it conflicts with the merchant input or a",
+    "     newly answered gap above, the newer fact wins and the draft must be updated to match, not preserved.",
     "",
     // ─── ASSUMPTION BOUNDARY ──────────────────────────────────────────────────
     "ASSUMPTION BOUNDARY (hard rule, not a preference):",
@@ -2997,7 +3027,11 @@ async function aiGenerateProductCopy(options = {}) {
     // signal without needing any new AI-output field or lighting-specific assumption.
     // Operational metafields (flagged by the AI itself - see operational_metafields)
     // are excluded here too: they should never appear as a content gap to fill in.
-    const unresolvedMetafields = computeUnresolvedMetafields(relevantMetafields, aiMetafields, operationalMetafieldIds);
+    // Also folds in whatever was already saved on the incoming row (e.g. a gap the
+    // user answered on a prior turn) - the AI only sees this call's own output, so
+    // without this an already-answered gap could wrongly reappear as still-missing.
+    const existingMetafields = parseMetafieldsJsonSafe(row.metafields_json);
+    const unresolvedMetafields = computeUnresolvedMetafields(relevantMetafields, aiMetafields, operationalMetafieldIds, existingMetafields);
 
     // Merge AI fields into the row, respecting locked fields and only
     // overwriting empty or explicitly-overwrite-requested fields.
@@ -3938,9 +3972,25 @@ function describeUnresolvedMetafields(unresolvedMetafields) {
     .filter(Boolean);
 }
 
-function computeUnresolvedMetafields(relevantMetafields, aiMetafields, operationalIds) {
+function parseMetafieldsJsonSafe(rawValue) {
+  const raw = String(rawValue || "").trim();
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function computeUnresolvedMetafields(relevantMetafields, aiMetafields, operationalIds, existingMetafields) {
   const operational = operationalIds instanceof Set ? operationalIds : new Set();
-  const filledIds = new Set(Object.keys(aiMetafields || {}).map((id) => id.toLowerCase()));
+  const filledIds = new Set([
+    ...Object.keys(aiMetafields || {}).map((id) => id.toLowerCase()),
+    ...Object.entries(existingMetafields || {})
+      .filter(([, value]) => String(value ?? "").trim() !== "")
+      .map(([id]) => id.toLowerCase()),
+  ]);
   return (Array.isArray(relevantMetafields) ? relevantMetafields : [])
     .filter((definition) => definition && definition.id && !filledIds.has(String(definition.id).toLowerCase()))
     .filter((definition) => !operational.has(String(definition.id).toLowerCase()))
@@ -6811,6 +6861,11 @@ function createServer() {
         if (!headers.length) {
           return sendJson(res, 400, { ok: false, error: "headers are required." });
         }
+        const gapAnswers = Array.isArray(body.gapAnswers)
+          ? body.gapAnswers
+            .map((entry) => ({ label: String(entry && entry.label || "").trim(), value: String(entry && entry.value || "").trim() }))
+            .filter((entry) => entry.label && entry.value)
+          : [];
 
         const shortDescription = String(body.shortDescription || "").trim();
         const imageNames = Array.isArray(body.imageNames)
@@ -6921,6 +6976,7 @@ function createServer() {
           productTypeSuggestions: Array.isArray(suggestion.rankedSuggestions) ? suggestion.rankedSuggestions.slice(0, 5) : [],
           relevantMetafields,
           priorImageCount,
+          gapAnswers,
         });
         const aiCopy = await aiGenerateProductCopy({
           systemPrompt: generationPrompt,
