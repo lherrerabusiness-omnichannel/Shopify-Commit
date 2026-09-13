@@ -297,6 +297,47 @@ Two options, need the user's explicit call:
     conventions (MR16, GU10, etc.) specifically, documented as a deliberate,
     named exception to the general rule - not a blanket loosening of it.
 
+## 8c. Dynamic Gap-Filling Boxes (proposed, not yet built)
+
+User's revised direction after weighing the variant-option-mapping idea (8b.3):
+auto-mapping free text into a variant option (e.g. "Half Moon") risks fighting the
+user's own creative naming or brand voice, so instead of the AI silently deciding
+structure, keep the app in a "surface it, let the user drive" posture:
+
+- **Variant option**: stays a single, fixed box - auto-populated by the app from
+  generation, but always directly editable by the user. (Likely already satisfied
+  by the existing reviewed-fields option1_name/option1_value editing - confirm
+  before building anything new here.)
+- **New: ~5 dynamic gap-filling boxes**, positioned near the SKU area. These evolve
+  the existing "missing high-value info" callout (currently a read-only list) into
+  actual fillable input boxes:
+  - Blank by default - intentionally not pre-filled, to push the user to answer
+    rather than passively read a suggestion.
+  - Populated from whatever the AI currently considers the top missing high-value
+    fields for THIS product - generic/adaptive by design, not hardcoded per store
+    or product type, so it works the same way for a completely different store's
+    products.
+  - When the user edits the description with new information, and that new
+    information happens to answer one of the 5 currently-shown questions, that box
+    is replaced with the next-most-valuable still-missing question - the set of 5
+    continuously tracks the current top gaps rather than staying static.
+
+### Open questions before implementation
+
+1. For each box to be a real fillable field (not just a sentence to read), the AI's
+   missing_high_value_fields output likely needs to become structured (an actual
+   field key like "voltage", not just a free-text phrase like "the voltage rating")
+   so the app knows exactly where a typed answer should go. Confirm this is an
+   acceptable schema change.
+2. When the user types directly into one of these boxes (e.g. types "12V" into a
+   Voltage box), should that value be used directly as the field value (bypassing
+   AI reinterpretation, since the user is directly answering a specific technical
+   question), or should it be treated like a description edit and re-run through
+   generation? Leaning toward "used directly" but want confirmation.
+3. Ranking: if there are more than 5 candidate gaps, how should the top 5 be
+   chosen - AI's own stated order, or a fixed priority (safety-relevant electrical
+   specs first, then everything else)?
+
 ## 9. Explicitly Out of Scope (for now)
 
 - SKU number generation/logic (auto-numbering, prefix schemes) - deferred as a
