@@ -172,6 +172,11 @@ two bulk-action checkboxes below are new feedback, not yet built.
 
 ## 8a. Metafield Mapping Fixes (real-listing feedback round, Sept 2026)
 
+STATUS: implemented and pushed (commit ae6ab01). Not yet verified against a real
+listing in Shopify admin - next real push should confirm Key Features/
+Specifications/Safety Note/Disclaimer actually populate, MPN = SKU, and Condition
+reflects the new profile setting.
+
 Found by comparing a real pushed listing against its Shopify admin page.
 
 ### Root cause: rich_text_field metafields silently dropped
