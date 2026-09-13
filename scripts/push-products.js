@@ -181,6 +181,42 @@ function isValidMetafieldKey(value) {
   return /^[A-Za-z0-9_-]+$/.test(String(value || ""));
 }
 
+// Converts plain text into Shopify's rich_text_field JSON schema (verified against
+// Shopify's own docs: https://shopify.dev/docs/apps/build/metafields/list-of-data-types).
+// Pipe-delimited text ("a|b|c") becomes a bulleted list; anything else becomes one
+// paragraph per newline-separated block. Returns "" for empty input.
+function buildRichTextJson(rawValue) {
+  const text = String(rawValue || "").trim();
+  if (!text) return "";
+
+  if (text.includes("|")) {
+    const items = text.split("|").map((s) => s.trim()).filter(Boolean);
+    if (items.length > 1) {
+      return JSON.stringify({
+        type: "root",
+        children: [{
+          type: "list",
+          listType: "unordered",
+          children: items.map((item) => ({
+            type: "list-item",
+            children: [{ type: "text", value: item }],
+          })),
+        }],
+      });
+    }
+  }
+
+  const paragraphs = text.split(/\n+/).map((s) => s.trim()).filter(Boolean);
+  const blocks = paragraphs.length ? paragraphs : [text];
+  return JSON.stringify({
+    type: "root",
+    children: blocks.map((p) => ({
+      type: "paragraph",
+      children: [{ type: "text", value: p }],
+    })),
+  });
+}
+
 function normalizeMetafieldForWrite(metafield) {
   if (!metafield || typeof metafield !== "object") return null;
   const namespace = String(metafield.namespace || "").trim();
@@ -203,7 +239,12 @@ function normalizeMetafieldForWrite(metafield) {
       JSON.parse(value);
       return { namespace, key, type, value };
     } catch {
-      return null;
+      // Not already valid rich-text JSON (the normal case — generated content is
+      // plain text). Convert instead of silently dropping the metafield, which is
+      // what happened before: Key Features/Specifications/Safety Note/Disclaimer
+      // all came back blank because plain text always failed this check.
+      const converted = buildRichTextJson(value);
+      return converted ? { namespace, key, type, value: converted } : null;
     }
   }
 

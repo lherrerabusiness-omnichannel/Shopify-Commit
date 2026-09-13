@@ -2030,7 +2030,31 @@ function createEmptyBrandProfile() {
     defaultLocationName: "",
     defaultPushMode: "update",
     activeUpdatePolicy: "ask",
+    itemCondition: "new", // new | open_box | used_like_new | used - feeds Google: Condition
+    disclaimerText: "",
+    disclaimerScope: "all", // all | categories
+    disclaimerCategories: [],
   };
+}
+
+// Google Merchant Center only accepts "new" | "refurbished" | "used" for its
+// condition field. The profile asks the merchant a plain question with more
+// natural options, then this maps their answer to Google's accepted values.
+const ITEM_CONDITION_TO_GOOGLE_CONDITION = {
+  new: "new",
+  open_box: "used",
+  used_like_new: "used",
+  used: "used",
+};
+
+function normalizeItemCondition(value) {
+  const v = String(value || "new").trim().toLowerCase();
+  return Object.prototype.hasOwnProperty.call(ITEM_CONDITION_TO_GOOGLE_CONDITION, v) ? v : "new";
+}
+
+function normalizeDisclaimerScope(value) {
+  const v = String(value || "all").trim().toLowerCase();
+  return v === "categories" ? "categories" : "all";
 }
 
 function normalizeActiveUpdatePolicy(value) {
@@ -2066,6 +2090,12 @@ function readBrandProfile(filePath) {
       defaultLocationName: String(value.defaultLocationName || "").trim(),
       defaultPushMode: String(value.defaultPushMode || "update").trim(),
       activeUpdatePolicy: normalizeActiveUpdatePolicy(value.activeUpdatePolicy),
+      itemCondition: normalizeItemCondition(value.itemCondition),
+      disclaimerText: String(value.disclaimerText || "").trim(),
+      disclaimerScope: normalizeDisclaimerScope(value.disclaimerScope),
+      disclaimerCategories: Array.isArray(value.disclaimerCategories)
+        ? value.disclaimerCategories.map((x) => String(x || "").trim()).filter(Boolean)
+        : [],
     };
   } catch {
     return createEmptyBrandProfile();
@@ -4589,6 +4619,92 @@ async function performWorkflowImport(shopContext, payload) {
   };
 }
 
+// Sets or fills a metafield on product.metafields without touching a value that's
+// already populated, matching the "don't overwrite what's already there" pattern
+// used elsewhere in this file. Values are plain text — the push-time rich-text
+// conversion (push-products.js) handles the Shopify JSON formatting for any
+// rich_text_field metafield, so nothing here needs to know about that format.
+function setMetafieldIfBlank(product, namespace, key, value, type) {
+  const trimmedValue = String(value || "").trim();
+  if (!trimmedValue) return;
+  if (!Array.isArray(product.metafields)) product.metafields = [];
+  const idx = product.metafields.findIndex(
+    (mf) => String(mf.namespace || "").trim() === namespace && String(mf.key || "").trim() === key
+  );
+  if (idx >= 0) {
+    if (!String(product.metafields[idx].value || "").trim()) {
+      product.metafields[idx].value = trimmedValue;
+    }
+  } else {
+    product.metafields.push({ namespace, key, value: trimmedValue, type });
+  }
+}
+
+// Deterministic metafield mappings that don't depend on the AI call at all, so they
+// still apply even when AI generation fails or is skipped. Covers: Google Shopping
+// MPN (= SKU) and Condition (from the profile's plain-language question, mapped to
+// Google's accepted new/refurbished/used values), and the always-on Safety Note
+// template for this store's electrical products (IP rating inserted when known).
+// Disclaimer is handled separately by applyDisclaimerIfApplicable, since it needs
+// the resolved product type to check the category-scope setting.
+function applyDeterministicMetafields(product, options = {}) {
+  const sku = String(options.sku || "").trim();
+  const ipRating = String(options.ipRating || "").trim();
+  const brandProfile = options.brandProfile || {};
+
+  if (sku) {
+    setMetafieldIfBlank(product, "mm-google-shopping", "mpn", sku, "single_line_text_field");
+  }
+
+  const googleCondition = ITEM_CONDITION_TO_GOOGLE_CONDITION[normalizeItemCondition(brandProfile.itemCondition)];
+  if (googleCondition) {
+    setMetafieldIfBlank(product, "mm-google-shopping", "condition", googleCondition, "single_line_text_field");
+  }
+
+  const safetyLines = [
+    "Safety Notice: Always disconnect or turn off power at the source before installing, adjusting, or servicing this fixture.",
+  ];
+  if (ipRating) {
+    safetyLines.push(`This fixture is rated ${ipRating} for weather/water resistance — confirm the installation location and wiring match this rating.`);
+  }
+  safetyLines.push("Installation should comply with local electrical codes. If unsure, consult a licensed electrician.");
+  setMetafieldIfBlank(product, "custom", "safety_note", safetyLines.join(" "), "rich_text_field");
+}
+
+// Extends the missing-high-value-fields callout (from Phase 1) with a suggestion to
+// configure a disclaimer when none exists yet. This store sells electrical products,
+// where a liability disclaimer is generally worth having - surfaced as a suggestion
+// rather than silently doing nothing, without inventing disclaimer text on the AI's
+// own judgment (disclaimer text must be merchant-authored per the approved design).
+function appendDisclaimerSuggestionIfMissing(fields, brandProfile) {
+  const list = Array.isArray(fields) ? fields.slice() : [];
+  const hasDisclaimer = String((brandProfile && brandProfile.disclaimerText) || "").trim();
+  if (!hasDisclaimer) {
+    list.push("a liability disclaimer (none configured yet — add one under Brand Profile if this product category could benefit from one)");
+  }
+  return list;
+}
+
+// Disclaimer text is authored once by the merchant in the profile, never generated
+// per listing - this just decides whether it applies to THIS product and, if so,
+// passes it through unchanged (no AI compute spent on it).
+function applyDisclaimerIfApplicable(product, effectiveType, brandProfile) {
+  const disclaimerText = String((brandProfile && brandProfile.disclaimerText) || "").trim();
+  if (!disclaimerText) return false;
+  const scope = normalizeDisclaimerScope(brandProfile.disclaimerScope);
+  if (scope === "all") {
+    setMetafieldIfBlank(product, "custom", "disclaimer", disclaimerText, "rich_text_field");
+    return true;
+  }
+  const categories = Array.isArray(brandProfile.disclaimerCategories) ? brandProfile.disclaimerCategories : [];
+  const matches = categories.some((c) => String(c || "").trim().toLowerCase() === String(effectiveType || "").trim().toLowerCase());
+  if (matches) {
+    setMetafieldIfBlank(product, "custom", "disclaimer", disclaimerText, "rich_text_field");
+    return true;
+  }
+  return false;
+}
+
 async function enrichImportedOutputWithAi(shopContext, options = {}) {
   const outputPath = String(options.outputPath || "").trim();
   const shortDescription = String(options.shortDescription || "").trim();
@@ -4677,6 +4793,18 @@ async function enrichImportedOutputWithAi(shopContext, options = {}) {
         : [];
 
       const effectiveType = String(row.product_type || "").trim();
+
+      // Deterministic metafields (MPN, Condition, Safety Note, Disclaimer) never
+      // depend on the AI call succeeding, so they're applied here unconditionally
+      // rather than inside the AI branch below, which can be skipped entirely.
+      const productSku = String(product?.variants?.[0]?.sku || "").trim();
+      applyDeterministicMetafields(product, {
+        sku: productSku,
+        ipRating: metafieldMap.ip_rating || "",
+        brandProfile,
+      });
+      applyDisclaimerIfApplicable(product, effectiveType, brandProfile);
+
       const trustedEffectiveType = findExactStoreProductType(effectiveType, productTypes);
       const typeHints = getStoreDbTypeHints(effectiveType, storeDb);
       const categoryProfile = getCategoryProfileForType(effectiveType, storeDb);
@@ -6157,6 +6285,12 @@ function createServer() {
           defaultLocationName: String(body.defaultLocationName || "").trim(),
           defaultPushMode: String(body.defaultPushMode || "update").trim(),
           activeUpdatePolicy: normalizeActiveUpdatePolicy(body.activeUpdatePolicy),
+          itemCondition: normalizeItemCondition(body.itemCondition),
+          disclaimerText: String(body.disclaimerText || "").trim(),
+          disclaimerScope: normalizeDisclaimerScope(body.disclaimerScope),
+          disclaimerCategories: Array.isArray(body.disclaimerCategories)
+            ? body.disclaimerCategories.map((x) => String(x || "").trim()).filter(Boolean)
+            : String(body.disclaimerCategories || "").split(",").map((x) => x.trim()).filter(Boolean),
         };
         writeBrandProfile(shopContext.paths.brandProfilePath, next);
         return sendJson(res, 200, {
@@ -6422,7 +6556,7 @@ function createServer() {
             brandProfile,
             aiGenerated,
             generationPrompt,
-            missingHighValueFields: (aiBuffer && aiBuffer.missing_high_value_fields) || [],
+            missingHighValueFields: appendDisclaimerSuggestionIfMissing((aiBuffer && aiBuffer.missing_high_value_fields) || [], brandProfile),
             inputGuidance: buildInputGuidance({
               shortDescription,
               imageNames,
@@ -6687,7 +6821,7 @@ function createServer() {
             productTypes,
             aiGenerated,
             generationPrompt,
-            missingHighValueFields: (aiBuffer && aiBuffer.missing_high_value_fields) || [],
+            missingHighValueFields: appendDisclaimerSuggestionIfMissing((aiBuffer && aiBuffer.missing_high_value_fields) || [], brandProfile),
             inputGuidance: buildInputGuidance({
               shortDescription,
               imageNames,
