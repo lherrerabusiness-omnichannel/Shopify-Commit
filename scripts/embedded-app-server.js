@@ -688,7 +688,7 @@ async function runImportWithInput(shopContext, inputPath, imageRoot, options = {
   };
 }
 
-async function runPushForFile(filePath, mode, locationId, pushMode, targetProductId) {
+async function runPushForFile(filePath, mode, locationId, pushMode, targetProductId, statusOverride) {
   const args = [
     "scripts/push-products.js",
     "--file", filePath,
@@ -711,6 +711,10 @@ async function runPushForFile(filePath, mode, locationId, pushMode, targetProduc
 
   if (targetProductId) {
     args.push("--target-id", String(targetProductId).trim());
+  }
+
+  if (statusOverride) {
+    args.push("--status-override", String(statusOverride).trim());
   }
 
   return runNodeScript(args);
@@ -2017,7 +2021,13 @@ function createEmptyBrandProfile() {
     defaultLocationId: "",
     defaultLocationName: "",
     defaultPushMode: "update",
+    activeUpdatePolicy: "ask",
   };
+}
+
+function normalizeActiveUpdatePolicy(value) {
+  const v = String(value || "ask").trim().toLowerCase();
+  return v === "active" || v === "draft" ? v : "ask";
 }
 
 function normalizeWebsiteUrl(value) {
@@ -2047,6 +2057,7 @@ function readBrandProfile(filePath) {
       defaultLocationId: String(value.defaultLocationId || "").trim(),
       defaultLocationName: String(value.defaultLocationName || "").trim(),
       defaultPushMode: String(value.defaultPushMode || "update").trim(),
+      activeUpdatePolicy: normalizeActiveUpdatePolicy(value.activeUpdatePolicy),
     };
   } catch {
     return createEmptyBrandProfile();
@@ -4782,6 +4793,8 @@ async function performWorkflowPush(shopContext, payload) {
   const locationId = String(payload.locationId || brandProfile.defaultLocationId || "").trim();
   const pushMode = String(payload.pushMode || brandProfile.defaultPushMode || "update").trim().toLowerCase();
   const targetProductId = String(payload.targetProductId || "").trim();
+  const rawStatusOverride = String(payload.statusOverride || "").trim().toUpperCase();
+  const statusOverride = rawStatusOverride === "ACTIVE" || rawStatusOverride === "DRAFT" ? rawStatusOverride : "";
 
   if (!outputPath) {
     return { ok: false, code: 1, error: "No generated output available. Run import first." };
@@ -4799,7 +4812,7 @@ async function performWorkflowPush(shopContext, payload) {
     return { ok: false, code: 1, error: "Live push disabled for embedded shell. Set EMBEDDED_ALLOW_LIVE_PUSH=true to enable." };
   }
 
-  const result = await runPushForFile(outputPath, mode, locationId, pushMode, targetProductId);
+  const result = await runPushForFile(outputPath, mode, locationId, pushMode, targetProductId, statusOverride);
 
   shopContext.workflowState.lastPush = {
     ok: result.ok,
@@ -6133,6 +6146,7 @@ function createServer() {
           defaultLocationId: String(body.defaultLocationId || "").trim(),
           defaultLocationName: String(body.defaultLocationName || "").trim(),
           defaultPushMode: String(body.defaultPushMode || "update").trim(),
+          activeUpdatePolicy: normalizeActiveUpdatePolicy(body.activeUpdatePolicy),
         };
         writeBrandProfile(shopContext.paths.brandProfilePath, next);
         return sendJson(res, 200, {

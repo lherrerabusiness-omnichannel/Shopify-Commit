@@ -549,8 +549,9 @@
       <p id="skuModalBody">A product with this SKU already exists in your Shopify catalog. How would you like to proceed?</p>
       <div class="modal-detail" id="skuModalDetail"></div>
       <div class="modal-btns">
-        <button class="btn primary" id="skuModalCreateNew" type="button">Create New Listing Anyway</button>
-        <button class="btn" id="skuModalCancel" type="button">Skip This Listing</button>
+        <button class="btn primary" id="skuModalUpdateExisting" type="button">Update Existing Listing</button>
+        <button class="btn" id="skuModalCreateNew" type="button">Create New Listing (Same SKU)</button>
+        <button class="btn" id="skuModalCancel" type="button">Cancel</button>
       </div>
     </div>
   </div>
@@ -669,6 +670,13 @@
                     <option value="update">Update Existing (add images)</option>
                     <option value="replace">Replace All (delete &amp; re-upload images)</option>
                     <option value="create">Always Create New Listing</option>
+                  </select>
+                </label>
+                <label style="font-size:0.79rem;color:var(--sub);">When updating a listing that is currently Active
+                  <select id="brandActiveUpdatePolicyInput">
+                    <option value="ask">Ask me every time</option>
+                    <option value="active">Always keep it Active</option>
+                    <option value="draft">Always set it to Draft</option>
                   </select>
                 </label>
               </div>
@@ -1063,6 +1071,7 @@
     const brandDisplayNameInput = document.getElementById("brandDisplayNameInput");
     const brandDefaultLocationInput = document.getElementById("brandDefaultLocationInput");
     const brandDefaultPushModeInput = document.getElementById("brandDefaultPushModeInput");
+    const brandActiveUpdatePolicyInput = document.getElementById("brandActiveUpdatePolicyInput");
     const brandNameInput = document.getElementById("brandNameInput");
     const brandVendorInput = document.getElementById("brandVendorInput");
     const brandWebsiteInput = document.getElementById("brandWebsiteInput");
@@ -1216,8 +1225,12 @@
     const skuConflictModal = document.getElementById("skuConflictModal");
     const skuModalBody = document.getElementById("skuModalBody");
     const skuModalDetail = document.getElementById("skuModalDetail");
+    const skuModalUpdateExisting = document.getElementById("skuModalUpdateExisting");
     const skuModalCreateNew = document.getElementById("skuModalCreateNew");
     const skuModalCancel = document.getElementById("skuModalCancel");
+    // Set by checkSkuConflictBeforeProceed() when the user made an explicit
+    // update/create-new/status decision, consumed once by the next push payload.
+    let pendingPushOverrides = { pushMode: "", statusOverride: "" };
 
     // Generic confirm modal state (replaces window.confirm(), which is unreliable
     // inside the Shopify admin embedded iframe on some browsers).
@@ -1268,62 +1281,104 @@
     // Returns a Promise that resolves true (proceed) or false (cancel).
     // Checks the SKU field in customCsvRow. If no SKU or no conflict, resolves true immediately.
     // In "create" mode the check is always skipped — user has explicitly asked for a new listing.
-    function checkSkuConflictBeforeProceed() {
+    function skuModalWaitForChoice() {
+      return new Promise((resolve) => {
+        skuConflictModal.classList.add("open");
+
+        function onUpdate() { cleanup(); resolve("update"); }
+        function onCreateNew() { cleanup(); resolve("create"); }
+        function onCancel() { cleanup(); resolve("cancel"); }
+        function cleanup() {
+          skuConflictModal.classList.remove("open");
+          skuModalUpdateExisting.removeEventListener("click", onUpdate);
+          skuModalCreateNew.removeEventListener("click", onCreateNew);
+          skuModalCancel.removeEventListener("click", onCancel);
+        }
+
+        skuModalUpdateExisting.addEventListener("click", onUpdate);
+        skuModalCreateNew.addEventListener("click", onCreateNew);
+        skuModalCancel.addEventListener("click", onCancel);
+      });
+    }
+
+    // Resolves how to proceed when the reviewed SKU already exists in the catalog.
+    // Returns { proceed, pushModeOverride, statusOverride, hadConflict }.
+    // - proceed=false: user cancelled, caller must stop.
+    // - pushModeOverride="create": force a genuinely new, separate listing even
+    //   though the SKU matches (previously this button didn't actually change
+    //   push mode, so it silently updated the existing listing instead).
+    // - statusOverride: resolved Active/Draft decision when updating a listing
+    //   that is currently Active in Shopify, so an update never silently
+    //   un-publishes (or re-publishes) something without an explicit choice.
+    // - hadConflict: true if the modal was actually shown (lets the caller skip
+    //   a redundant second "are you sure" prompt).
+    async function checkSkuConflictBeforeProceed() {
       const currentPushMode = String(
         (workflowPushModeSelect && workflowPushModeSelect.value) ||
         (latestBrandProfile && latestBrandProfile.defaultPushMode) ||
         "update"
       ).trim().toLowerCase();
+      const noConflict = { proceed: true, pushModeOverride: "", statusOverride: "", hadConflict: false };
       // Create mode: always create new — skip SKU conflict check entirely
-      if (currentPushMode === "create") return Promise.resolve(true);
+      if (currentPushMode === "create") return noConflict;
 
       const sku = String(customCsvRow && (customCsvRow.sku || customCsvRow.variant_sku) || "").trim();
-      if (!sku) return Promise.resolve(true);
+      if (!sku) return noConflict;
 
-      return apiGet(`/api/store/sku-check?sku=${encodeURIComponent(sku)}`)
-        .then((res) => res.json())
-        .then((data) => {
-          if (!data.ok || !data.exists) return true; // no conflict, proceed
+      let data;
+      try {
+        const res = await apiGet(`/api/store/sku-check?sku=${encodeURIComponent(sku)}`);
+        data = await res.json();
+      } catch {
+        return noConflict; // network error: proceed rather than block
+      }
+      if (!data.ok || !data.exists) return noConflict;
 
-          const conflicts = Array.isArray(data.conflicts) ? data.conflicts : [];
-          const primaryConflict = conflicts[0] || {};
-          const filledFields = applyExistingListingGaps(primaryConflict);
-          const detailLines = conflicts.map((c) =>
-            `SKU: ${c.sku}\nProduct: ${c.productTitle} (${c.productStatus})\nHandle: ${c.productHandle}\nType: ${c.productType || "n/a"}\nPrice: ${c.price || "n/a"}`
-          ).join("\n\n");
-          skuModalBody.textContent = `A product with SKU "${sku}" already exists in your Shopify catalog. How would you like to proceed?`;
-          skuModalDetail.textContent = [
-            detailLines || `SKU: ${sku}`,
-            filledFields.length
-              ? `Filled blank reviewed fields from the existing listing: ${filledFields.join(", ")}. App-reviewed values were not overwritten.`
-              : "No blank reviewed fields were filled. App-reviewed values remain unchanged.",
-          ].filter(Boolean).join("\n\n");
-          quickCsvBuilderStatus.textContent = filledFields.length
-            ? `Existing SKU found. Filled blank fields from Shopify: ${filledFields.join(", ")}.`
-            : "Existing SKU found. No blank reviewed fields needed Shopify fallback data.";
+      const conflicts = Array.isArray(data.conflicts) ? data.conflicts : [];
+      const primaryConflict = conflicts[0] || {};
+      const filledFields = applyExistingListingGaps(primaryConflict);
+      const detailLines = conflicts.map((c) =>
+        `SKU: ${c.sku}\nProduct: ${c.productTitle} (${c.productStatus})\nHandle: ${c.productHandle}\nType: ${c.productType || "n/a"}\nPrice: ${c.price || "n/a"}`
+      ).join("\n\n");
+      skuModalBody.textContent = `A product with SKU "${sku}" already exists in your Shopify catalog. How would you like to proceed?`;
+      skuModalDetail.textContent = [
+        detailLines || `SKU: ${sku}`,
+        filledFields.length
+          ? `Filled blank reviewed fields from the existing listing: ${filledFields.join(", ")}. App-reviewed values were not overwritten.`
+          : "No blank reviewed fields were filled. App-reviewed values remain unchanged.",
+      ].filter(Boolean).join("\n\n");
+      quickCsvBuilderStatus.textContent = filledFields.length
+        ? `Existing SKU found. Filled blank fields from Shopify: ${filledFields.join(", ")}.`
+        : "Existing SKU found. No blank reviewed fields needed Shopify fallback data.";
 
-          return new Promise((resolve) => {
-            skuConflictModal.classList.add("open");
+      const decision = await skuModalWaitForChoice();
 
-            function onCreateNew() {
-              cleanup();
-              resolve(true); // create new anyway
-            }
-            function onCancel() {
-              cleanup();
-              resolve(false); // abort
-            }
-            function cleanup() {
-              skuConflictModal.classList.remove("open");
-              skuModalCreateNew.removeEventListener("click", onCreateNew);
-              skuModalCancel.removeEventListener("click", onCancel);
-            }
+      if (decision === "cancel") {
+        return { proceed: false, pushModeOverride: "", statusOverride: "", hadConflict: true };
+      }
+      if (decision === "create") {
+        return { proceed: true, pushModeOverride: "create", statusOverride: "", hadConflict: true };
+      }
 
-            skuModalCreateNew.addEventListener("click", onCreateNew);
-            skuModalCancel.addEventListener("click", onCancel);
-          });
-        })
-        .catch(() => true); // network error: proceed rather than block
+      // decision === "update": if the matched listing is currently Active, resolve
+      // whether it should stay Active or move to Draft — never silently flip
+      // publish state. Uses the profile's standing preference when set; otherwise asks.
+      if (String(primaryConflict.productStatus || "").toUpperCase() === "ACTIVE") {
+        const policy = (latestBrandProfile && latestBrandProfile.activeUpdatePolicy) || "ask";
+        if (policy === "active") {
+          return { proceed: true, pushModeOverride: "", statusOverride: "ACTIVE", hadConflict: true };
+        }
+        if (policy === "draft") {
+          return { proceed: true, pushModeOverride: "", statusOverride: "DRAFT", hadConflict: true };
+        }
+        const keepActive = await showConfirmModal(
+          "Keep This Listing Active?",
+          "This listing is currently Active in Shopify. Keep it Active after updating with the new content, or set it to Draft so you can review it first? Click OK to keep it Active, or Cancel to set it to Draft."
+        );
+        return { proceed: true, pushModeOverride: "", statusOverride: keepActive ? "ACTIVE" : "DRAFT", hadConflict: true };
+      }
+
+      return { proceed: true, pushModeOverride: "", statusOverride: "", hadConflict: true };
     }
     const classificationNoticeText = "Final classification stays under your control before publishing.";
     const autoRefreshFieldKeys = [
@@ -1924,6 +1979,7 @@
         if (p.defaultPushMode) {
           brandDefaultPushModeInput.value = p.defaultPushMode;
         }
+        brandActiveUpdatePolicyInput.value = p.activeUpdatePolicy || "ask";
         renderBrandWebsitePreview(p.websiteUrl || "");
         renderBrandProfileImagePreview(p.profileImageUrl || "");
         brandProfileStatus.textContent = summarizeBrandProfile(latestBrandProfile);
@@ -1948,6 +2004,7 @@
           defaultLocationId: String(brandDefaultLocationInput.value || "").trim(),
           defaultLocationName: String((brandDefaultLocationInput.selectedOptions[0] && brandDefaultLocationInput.selectedOptions[0].text !== "\u2014 Select a location \u2014" ? brandDefaultLocationInput.selectedOptions[0].text : "") || "").trim(),
           defaultPushMode: String(brandDefaultPushModeInput.value || "update").trim(),
+          activeUpdatePolicy: String(brandActiveUpdatePolicyInput.value || "ask").trim(),
         };
         const res = await apiPost("/api/brand-profile/save", payload);
         const data = await res.json();
@@ -2294,16 +2351,27 @@
           return;
         }
 
-        // Always prompt — regardless of whether a previous generation just completed.
-        // This lets the user generate a new listing from the same reviewed data without
-        // having to change any fields first.
-        const shouldPushLive = await showConfirmModal(
-          "Push Live to Shopify?",
-          "Generate a new Shopify draft listing from your reviewed fields and push it live now? Click OK to create a new draft, or Cancel to keep your work."
-        );
-        if (!shouldPushLive) {
-          quickStatus.textContent = "Cancelled before live push. Your reviewed fields are preserved.";
+        // Check whether this SKU already exists in Shopify before anything else — if it
+        // does, the user explicitly chooses Update Existing / Create New / Cancel, which
+        // already serves as their confirmation to proceed. Only show the generic
+        // "Push Live?" prompt when there was no conflict to resolve, so the user isn't
+        // asked to confirm twice for the same action.
+        const skuDecision = await checkSkuConflictBeforeProceed();
+        if (!skuDecision.proceed) {
+          quickStatus.textContent = "Cancelled. Your reviewed fields are still here — edit any field and try again.";
           return;
+        }
+        pendingPushOverrides = { pushMode: skuDecision.pushModeOverride, statusOverride: skuDecision.statusOverride };
+
+        if (!skuDecision.hadConflict) {
+          const shouldPushLive = await showConfirmModal(
+            "Push Live to Shopify?",
+            "Generate a new Shopify draft listing from your reviewed fields and push it live now? Click OK to create a new draft, or Cancel to keep your work."
+          );
+          if (!shouldPushLive) {
+            quickStatus.textContent = "Cancelled before live push. Your reviewed fields are preserved.";
+            return;
+          }
         }
 
         quickStatus.textContent = "Preparing reviewed fields for Shopify import...";
@@ -3264,9 +3332,11 @@
             mode: "dry",
             outputPath: String(importResult.outputPath || "").trim(),
             locationId: String((latestBrandProfile && latestBrandProfile.defaultLocationId) || "").trim(),
-            pushMode: String((latestBrandProfile && latestBrandProfile.defaultPushMode) || "update").trim(),
+            pushMode: pendingPushOverrides.pushMode || String((latestBrandProfile && latestBrandProfile.defaultPushMode) || "update").trim(),
+            statusOverride: pendingPushOverrides.statusOverride || "",
             targetProductId: String(catalogProductSelect.value || "").trim(),
           };
+          pendingPushOverrides = { pushMode: "", statusOverride: "" };
           const pushRes = await apiPost("/api/workflow/push", pushPayload);
           const pushData = await pushRes.json();
           if (!pushRes.ok || !pushData.ok) {
@@ -3283,9 +3353,11 @@
             outputPath: String(importResult.outputPath || "").trim(),
             liveConfirm: "LIVE",
             locationId: String((latestBrandProfile && latestBrandProfile.defaultLocationId) || "").trim(),
-            pushMode: String((latestBrandProfile && latestBrandProfile.defaultPushMode) || "update").trim(),
+            pushMode: pendingPushOverrides.pushMode || String((latestBrandProfile && latestBrandProfile.defaultPushMode) || "update").trim(),
+            statusOverride: pendingPushOverrides.statusOverride || "",
             targetProductId: String(catalogProductSelect.value || "").trim(),
           };
+          pendingPushOverrides = { pushMode: "", statusOverride: "" };
           const pushRes = await apiPost("/api/workflow/push", pushPayload);
           const pushData = await pushRes.json();
           if (!pushRes.ok || !pushData.ok) {
@@ -3619,11 +3691,12 @@
     navSupportBtn.addEventListener("click", () => openSectionAndFocus(supportLogsSection, navSupportBtn));
 
     quickGenerateBtn.addEventListener("click", async () => {
-      const proceed = await checkSkuConflictBeforeProceed();
-      if (!proceed) {
+      const decision = await checkSkuConflictBeforeProceed();
+      if (!decision.proceed) {
         quickStatus.textContent = "Cancelled. Your reviewed fields are still here — edit any field and try again.";
         return;
       }
+      pendingPushOverrides = { pushMode: decision.pushModeOverride, statusOverride: decision.statusOverride };
       runWorkflowImport("quick");
     });
     quickTemplateDownloadBtn.addEventListener("click", downloadBaseTemplateCsv);

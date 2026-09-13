@@ -26,6 +26,7 @@ function parseArgs(argv) {
     location: "",
     pushMode: "update", // create | update | replace
     targetId: "",      // explicit Shopify product GID to update/replace
+    statusOverride: "", // ACTIVE | DRAFT - explicit publish-status decision for updates to an already-Active listing
   };
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -69,6 +70,15 @@ function parseArgs(argv) {
 
     if (arg === "--target-id" && argv[i + 1]) {
       args.targetId = String(argv[i + 1]).trim();
+      i += 1;
+      continue;
+    }
+
+    if (arg === "--status-override" && argv[i + 1]) {
+      const s = String(argv[i + 1]).trim().toUpperCase();
+      if (s === "ACTIVE" || s === "DRAFT") {
+        args.statusOverride = s;
+      }
       i += 1;
       continue;
     }
@@ -942,6 +952,7 @@ async function getProductById(productId) {
         title
         handle
         status
+        tags
         variants(first: 1) { nodes { sku } }
       }
     }
@@ -963,6 +974,7 @@ async function findProductsBySku(sku) {
           title
           handle
           status
+          tags
         }
       }
     }
@@ -1009,6 +1021,7 @@ async function findProductByHandle(handle) {
           title
           handle
           status
+          tags
           variants(first: 1) { nodes { sku } }
         }
       }
@@ -1084,6 +1097,7 @@ async function pushProducts(products, dryRun) {
   const options = arguments[2] || { allowUnreadyLive: false };
   const cliLocationOverride = String(options.location || options.locationId || "").trim();
   const pushMode = String(options.pushMode || "update").toLowerCase();
+  const statusOverride = String(options.statusOverride || "").trim().toUpperCase();
   const skuReviewRows = [];
   let created = 0;
   let updated = 0;
@@ -1243,6 +1257,34 @@ async function pushProducts(products, dryRun) {
         : "";
 
       if (existing) {
+        // Tags: merge with the existing listing's tags instead of replacing them.
+        // Tags are frequently used for collections/filtering unrelated to this app's
+        // own generation, so an update must never drop a tag it didn't itself add.
+        const existingTags = Array.isArray(existing.tags) ? existing.tags : [];
+        const newTags = Array.isArray(productInput.tags) ? productInput.tags : [];
+        if (existingTags.length || newTags.length) {
+          const seenTags = new Set();
+          const mergedTags = [];
+          for (const tag of [...existingTags, ...newTags]) {
+            const trimmed = String(tag || "").trim();
+            const key = trimmed.toLowerCase();
+            if (!trimmed || seenTags.has(key)) continue;
+            seenTags.add(key);
+            mergedTags.push(trimmed);
+          }
+          productInput.tags = mergedTags;
+        }
+
+        // Publish status: never silently flip an already-Active listing to Draft (or
+        // vice versa) without an explicit decision. If the existing listing isn't
+        // Active, leave the generated (always-Draft) status alone - nothing to protect.
+        // If it IS Active, only change it when the caller explicitly resolved that
+        // choice via --status-override; otherwise the safe default is Draft, which is
+        // already what productInput.status defaults to.
+        if (existing.status === "ACTIVE") {
+          productInput.status = statusOverride === "ACTIVE" ? "ACTIVE" : "DRAFT";
+        }
+
         // Replace mode: wipe all existing media before uploading fresh set
         if (pushMode === "replace" && orderedImages.length) {
           await deleteAllProductMedia(existing.id);
@@ -1429,6 +1471,7 @@ async function main() {
     location: args.location,
     pushMode: args.pushMode,
     targetId: args.targetId,
+    statusOverride: args.statusOverride,
   });
 }
 
