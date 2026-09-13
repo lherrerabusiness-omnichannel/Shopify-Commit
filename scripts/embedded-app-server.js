@@ -2968,6 +2968,11 @@ async function aiGenerateProductCopy(options = {}) {
       aiFields.product_type = "";
     }
     const aiMetafields = normalizeAiMetafields(aiFields, relevantMetafields);
+    // Store-driven and product-type-agnostic by construction: relevantMetafields is
+    // already computed per store/product-type (selectRelevantMetafieldsForPrompt), so
+    // "relevant but not in what the AI actually filled" is a real, generic missing-gap
+    // signal without needing any new AI-output field or lighting-specific assumption.
+    const unresolvedMetafields = computeUnresolvedMetafields(relevantMetafields, aiMetafields);
 
     // Merge AI fields into the row, respecting locked fields and only
     // overwriting empty or explicitly-overwrite-requested fields.
@@ -2975,6 +2980,7 @@ async function aiGenerateProductCopy(options = {}) {
     Object.defineProperty(merged, "__aiFields", { value: aiFields, enumerable: false });
     Object.defineProperty(merged, "__productTypeResolution", { value: productTypeResolution, enumerable: false });
     Object.defineProperty(merged, "__aiMetafields", { value: aiMetafields, enumerable: false });
+    Object.defineProperty(merged, "__unresolvedMetafields", { value: unresolvedMetafields, enumerable: false });
     if (storeProductTypes.length && !productTypeResolution.productType && !lockedFields.has("product_type")) {
       merged.product_type = "";
     }
@@ -3862,6 +3868,33 @@ function normalizeAiMetafields(aiFields, relevantMetafields) {
     }
   }
   return out;
+}
+
+// Derives "what's still missing" for THIS product by comparing the store's own
+// relevant metafields (already computed per product type - generic by construction,
+// works identically for any store/category) against what the AI actually filled.
+// No new AI instruction needed: this is a pure diff of two things the app already
+// has. Each entry carries the metafield's own human-readable name from the store's
+// schema, so a UI (the missing-info callout today, dynamic gap-filling boxes later)
+// can show a real label without inventing one.
+// Renders [{key, label}] entries as plain sentences for the existing text-based
+// missing-info callout. Once the dynamic gap-filling boxes exist, the structured
+// {key, label} form itself (exposed separately as unresolvedMetafields) is what
+// they'd bind to directly instead of this rendered text.
+function describeUnresolvedMetafields(unresolvedMetafields) {
+  return (Array.isArray(unresolvedMetafields) ? unresolvedMetafields : [])
+    .map((entry) => String(entry && entry.label || "").trim())
+    .filter(Boolean);
+}
+
+function computeUnresolvedMetafields(relevantMetafields, aiMetafields) {
+  const filledIds = new Set(Object.keys(aiMetafields || {}).map((id) => id.toLowerCase()));
+  return (Array.isArray(relevantMetafields) ? relevantMetafields : [])
+    .filter((definition) => definition && definition.id && !filledIds.has(String(definition.id).toLowerCase()))
+    .map((definition) => ({
+      key: definition.id,
+      label: definition.name || definition.key || definition.id,
+    }));
 }
 
 function mergeMetafieldsJsonObject(rawValue, mappedMetafields) {
@@ -4915,9 +4948,13 @@ async function enrichImportedOutputWithAi(shopContext, options = {}) {
       }
 
       const rawAiFieldsForGaps = aiCopy.__aiFields || {};
-      const gapsForThisProduct = Array.isArray(rawAiFieldsForGaps.missing_high_value_fields)
-        ? rawAiFieldsForGaps.missing_high_value_fields.map((x) => String(x || "").trim()).filter(Boolean)
-        : [];
+      const unresolvedMetafieldsForThisProduct = aiCopy.__unresolvedMetafields || [];
+      const gapsForThisProduct = [
+        ...(Array.isArray(rawAiFieldsForGaps.missing_high_value_fields)
+          ? rawAiFieldsForGaps.missing_high_value_fields.map((x) => String(x || "").trim()).filter(Boolean)
+          : []),
+        ...describeUnresolvedMetafields(unresolvedMetafieldsForThisProduct),
+      ];
       if (gapsForThisProduct.length) {
         const label = String(product.title || product?.variants?.[0]?.sku || "this listing").trim();
         summary.missingHighValueFields.push(
@@ -6573,6 +6610,7 @@ function createServer() {
         const rawAiFields = aiCopy && aiCopy.__aiFields ? aiCopy.__aiFields : {};
         const productTypeResolution = aiCopy && aiCopy.__productTypeResolution ? aiCopy.__productTypeResolution : null;
         const aiMetafields = aiCopy && aiCopy.__aiMetafields ? aiCopy.__aiMetafields : {};
+        const unresolvedMetafields = aiCopy && aiCopy.__unresolvedMetafields ? aiCopy.__unresolvedMetafields : [];
         // aiBuffer: the raw structured output from the AI generation step, staged
         // before field distribution. The UI can use this to show what the AI produced
         // independently of any existing row values.
@@ -6624,7 +6662,14 @@ function createServer() {
             brandProfile,
             aiGenerated,
             generationPrompt,
-            missingHighValueFields: appendDisclaimerSuggestionIfMissing((aiBuffer && aiBuffer.missing_high_value_fields) || [], brandProfile),
+            missingHighValueFields: appendDisclaimerSuggestionIfMissing(
+              [...((aiBuffer && aiBuffer.missing_high_value_fields) || []), ...describeUnresolvedMetafields(unresolvedMetafields)],
+              brandProfile
+            ),
+            // Structured form (field key + store-defined label) of the same gaps -
+            // this is what the dynamic gap-filling boxes will bind to directly once
+            // built, rather than parsing the human-readable text above.
+            unresolvedMetafields,
             inputGuidance: buildInputGuidance({
               shortDescription,
               imageNames,
@@ -6843,6 +6888,7 @@ function createServer() {
         const rawAiFields = aiCopy && aiCopy.__aiFields ? aiCopy.__aiFields : {};
         const productTypeResolution = aiCopy && aiCopy.__productTypeResolution ? aiCopy.__productTypeResolution : null;
         const aiMetafields = aiCopy && aiCopy.__aiMetafields ? aiCopy.__aiMetafields : {};
+        const unresolvedMetafields = aiCopy && aiCopy.__unresolvedMetafields ? aiCopy.__unresolvedMetafields : [];
         const aiBuffer = aiCopy ? {
           title: rawAiFields.title || aiCopy.title || "",
           description_html: rawAiFields.description_html || aiCopy.description || aiCopy.body_html || "",
@@ -6889,7 +6935,14 @@ function createServer() {
             productTypes,
             aiGenerated,
             generationPrompt,
-            missingHighValueFields: appendDisclaimerSuggestionIfMissing((aiBuffer && aiBuffer.missing_high_value_fields) || [], brandProfile),
+            missingHighValueFields: appendDisclaimerSuggestionIfMissing(
+              [...((aiBuffer && aiBuffer.missing_high_value_fields) || []), ...describeUnresolvedMetafields(unresolvedMetafields)],
+              brandProfile
+            ),
+            // Structured form (field key + store-defined label) of the same gaps -
+            // this is what the dynamic gap-filling boxes will bind to directly once
+            // built, rather than parsing the human-readable text above.
+            unresolvedMetafields,
             inputGuidance: buildInputGuidance({
               shortDescription,
               imageNames,
