@@ -230,6 +230,73 @@ DRAFT WORDING (needs explicit approval or edits before use):
   suggestion to the merchant (extends the existing "missing high-value info" callout
   from Phase 1, rather than building a separate mechanism) - proactive, not silent.
 
+## 8b. Real-Listing Feedback: MR16 Well Light Test (Sept 2026) - open, not yet built
+
+Found from a real test input (MR16 Well Light Fixture: neoprene gasket, stainless
+screws, PVC body, solid brass Half Moon cover, MR16 5W warm white LED). Three items
+need direction before implementation; not simple bugs.
+
+### 1. Material/Finish: naive first-match, not component-aware
+
+Confirmed bug: the app mapped Material AND Finish to "stainless steel" - but the
+input describes multiple distinct materials for different parts (cover = solid
+brass, housing = PVC/plastic, gasket = neoprene, screws = stainless steel). The
+current extraction just grabs the first material word found in the text, with no
+sense of which physical component it belongs to, so it picked "stainless steel"
+(mentioned for the screws) over "brass" (mentioned for the cover - the largest,
+most visible, most important component for a buyer).
+
+User's stated priority if only one value can be mapped: the cover/largest component
+wins, not whichever material word appears first in the text. Ideally: capture
+multiple components (cover material, housing material, hardware material) rather
+than collapsing to one value. This needs real component-aware parsing (associating
+a material word with the noun it's describing), not a bigger keyword list - open
+design question on how far to take this before it's overbuilt for a text-based
+scanner.
+
+### 2. Finish: should not be guessed from images either - reinforces the existing rule
+
+Finish was also wrongly set to "stainless steel" (spillover from the material bug
+above, not an image-based guess this time) - but the user's own guidance here is
+important and consistent with the already-agreed Option A assumption boundary:
+finish must never be inferred from images or general assumption (e.g. "MR16
+fixtures are usually X finish"), because a real physical detail (color, coating) can
+differ from what's typical. Their example: the stainless screws could actually be
+powder-coated a different color, and guessing would produce a confidently wrong
+answer. If finish isn't explicitly and unambiguously stated in the input, leave it
+blank and add it to the missing-info callout - do not infer from images even as a
+"best guess."
+
+### 3. "Half Moon" (and similar option-style words) should map to a variant option, not just decorate text
+
+User's insight: this store already has an established pattern (see
+ONE_TAB_CONTRACT.md's well-light-cover-kit example) where "Cover" is an option with
+values like Flat / Half Moon / Louver / Grate. When a description mentions "Half
+Moon style cover," that's not just descriptive text - it's naming a specific,
+known option value for this product type, and should map to option1_value (or
+whichever option matches) rather than only flowing into the title/description.
+This is a real, valuable feature (recognizing known store option vocabulary in free
+text and mapping it structurally) but is a genuinely new capability, not a small
+fix - needs its own scoping pass before implementation.
+
+### 4. OPEN QUESTION for the user: MR16 = 12V convention vs. the assumption boundary
+
+The test input never stated a voltage number, but MR16 is a well-known industry
+convention for 12V low-voltage bulbs - user expected voltage to be populated
+automatically. This directly conflicts with the already-agreed Option A rule
+(never infer unstated technical/safety-relevant facts like voltage, specifically
+because guessing wrong on electrical specs is a liability risk, not just a quality
+issue) - MR16 sockets are common at 12V but not exclusively, so "usually 12V" is
+still an assumption, not a certainty.
+
+Two options, need the user's explicit call:
+(a) Leave voltage blank when not explicitly stated (current, safety-first behavior)
+    and rely on the missing-info callout to prompt the user to confirm it - now
+    actually visible before push per the fix in this session's other commit.
+(b) Carve out a narrow, explicit exception for well-established bulb-base voltage
+    conventions (MR16, GU10, etc.) specifically, documented as a deliberate,
+    named exception to the general rule - not a blanket loosening of it.
+
 ## 9. Explicitly Out of Scope (for now)
 
 - SKU number generation/logic (auto-numbering, prefix schemes) - deferred as a
