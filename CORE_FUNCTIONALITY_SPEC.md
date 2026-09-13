@@ -78,15 +78,56 @@ Trigger: no separate entry point. The user runs the normal workflow (description
 images + SKU). If that SKU already exists in the connected Shopify catalog, the app
 detects it automatically.
 
-- **Single match**: prompt the user - "Replace this existing listing, or create a
-  new one?"
-- **Multiple matches** (same SKU used across several listings): show a checkbox list
-  of all matching listings. The user can select one, several, or all.
-- For every listing selected, the listing is overwritten with the newly generated,
-  optimized content from the app - the same new content applied to every listing
-  checked.
+STATUS: single-match case implemented (commit 67d241a) - Update Existing / Create
+New / Cancel choice, tag merge, Active-listing publish-status guard. Multi-match
+case (this section) is designed, not yet built.
 
-### Overwrite scope (confirmed for price and images)
+### Single match (built)
+
+Prompt: "Replace this existing listing, or create a new one?" Tags merge with
+existing tags (never replaced). Price/images use single-listing overwrite rules
+(section below). Publish status is protected via explicit Active/Draft choice.
+
+### Multiple matches (designed, not yet built)
+
+Real-world reason (user-stated): the same product is sometimes listed at more than
+one price point on purpose (e.g. different bundles/tiers) sharing one SKU. An
+all-or-nothing update would break that setup, so this needs per-listing control.
+
+- Show every matching listing as its own row: thumbnail image, title, and current
+  price (all already available from the existing SKU-check data - no new backend
+  fetch needed for this part).
+- Each row has a checkbox. The user selects any combination: one, several, or all.
+- **Only description, title, and tags are updated** for every listing checked - this
+  is the safe default precisely because price/images may differ intentionally
+  across listings sharing a SKU.
+- Each row's price is shown as an **editable field**, pre-filled with that listing's
+  current price. If the user leaves it alone, that listing's price is not touched.
+  If they edit it, that specific listing's price is updated to the new value - a
+  per-listing override, not a blanket price push.
+- Images are not touched in the multi-select case (out of scope here - only
+  relevant to the single-listing image-review flow in the section below).
+
+### Execution: sequential queue by product ID, not one bulk call
+
+- Each checked listing is pushed individually, using Shopify's specific product ID
+  for that listing (already known from the SKU-check data) as an explicit target -
+  reuses the existing --target-id push mechanism, not new push logic.
+- Pushes run one at a time, in sequence (not in parallel) - await each one, then
+  move to the next.
+- Failure handling: the queue always completes as many listings as it correctly can.
+  A single listing's failure does not stop the rest of the queue.
+  - Shopify API calls already retry automatically for transient errors (rate
+    limits, temporary server errors) at the individual call level - this already
+    exists and doesn't need to be rebuilt.
+  - If a listing's entire push attempt still fails after that, retry that one
+    listing once more before giving up on it, then move to the next listing
+    regardless of outcome.
+  - At the end, show a clear summary: which listings succeeded, which failed and
+    why, with a "Try Again" action scoped to just the failed ones (not the whole
+    queue) and, where the failure reason suggests one, a proposed next step.
+
+### Overwrite scope for single-listing updates (confirmed for price and images)
 
 - **Price**: if the app's price field has a value, it is being actively reviewed and
   gets pushed/overwritten. If the app's price field is left blank, the existing
