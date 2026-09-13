@@ -78,9 +78,13 @@ Trigger: no separate entry point. The user runs the normal workflow (description
 images + SKU). If that SKU already exists in the connected Shopify catalog, the app
 detects it automatically.
 
-STATUS: single-match case implemented (commit 67d241a) - Update Existing / Create
-New / Cancel choice, tag merge, Active-listing publish-status guard. Multi-match
-case (this section) is designed, not yet built.
+STATUS: both cases implemented and pushed.
+- Single-match: commit 67d241a - Update Existing / Create New / Cancel choice, tag
+  merge, Active-listing publish-status guard.
+- Multi-match: commit 4591bad - checkbox picker (thumbnail/title/editable price),
+  content-only sequential push queue by product ID, retry-once + failure summary.
+Not yet verified against a real multi-match listing in Shopify - next real test
+should confirm the picker appears correctly and the queue behaves as designed.
 
 ### Single match (built)
 
