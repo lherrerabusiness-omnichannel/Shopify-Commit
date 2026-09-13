@@ -688,7 +688,7 @@ async function runImportWithInput(shopContext, inputPath, imageRoot, options = {
   };
 }
 
-async function runPushForFile(filePath, mode, locationId, pushMode, targetProductId, statusOverride) {
+async function runPushForFile(filePath, mode, locationId, pushMode, targetProductId, statusOverride, contentOnly, priceOverride) {
   const args = [
     "scripts/push-products.js",
     "--file", filePath,
@@ -715,6 +715,14 @@ async function runPushForFile(filePath, mode, locationId, pushMode, targetProduc
 
   if (statusOverride) {
     args.push("--status-override", String(statusOverride).trim());
+  }
+
+  if (contentOnly) {
+    args.push("--content-only");
+  }
+
+  if (priceOverride) {
+    args.push("--price-override", String(priceOverride).trim());
   }
 
   return runNodeScript(args);
@@ -4795,6 +4803,8 @@ async function performWorkflowPush(shopContext, payload) {
   const targetProductId = String(payload.targetProductId || "").trim();
   const rawStatusOverride = String(payload.statusOverride || "").trim().toUpperCase();
   const statusOverride = rawStatusOverride === "ACTIVE" || rawStatusOverride === "DRAFT" ? rawStatusOverride : "";
+  const contentOnly = Boolean(payload.contentOnly);
+  const priceOverride = String(payload.priceOverride || "").trim();
 
   if (!outputPath) {
     return { ok: false, code: 1, error: "No generated output available. Run import first." };
@@ -4812,7 +4822,7 @@ async function performWorkflowPush(shopContext, payload) {
     return { ok: false, code: 1, error: "Live push disabled for embedded shell. Set EMBEDDED_ALLOW_LIVE_PUSH=true to enable." };
   }
 
-  const result = await runPushForFile(outputPath, mode, locationId, pushMode, targetProductId, statusOverride);
+  const result = await runPushForFile(outputPath, mode, locationId, pushMode, targetProductId, statusOverride, contentOnly, priceOverride);
 
   shopContext.workflowState.lastPush = {
     ok: result.ok,

@@ -27,6 +27,8 @@ function parseArgs(argv) {
     pushMode: "update", // create | update | replace
     targetId: "",      // explicit Shopify product GID to update/replace
     statusOverride: "", // ACTIVE | DRAFT - explicit publish-status decision for updates to an already-Active listing
+    contentOnly: false, // when true: update title/description/tags only, leave price and images untouched
+    priceOverride: "", // explicit per-listing price to use even in content-only mode (e.g. from an editable field in a multi-listing picker)
   };
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -79,6 +81,17 @@ function parseArgs(argv) {
       if (s === "ACTIVE" || s === "DRAFT") {
         args.statusOverride = s;
       }
+      i += 1;
+      continue;
+    }
+
+    if (arg === "--content-only") {
+      args.contentOnly = true;
+      continue;
+    }
+
+    if (arg === "--price-override" && argv[i + 1]) {
+      args.priceOverride = String(argv[i + 1]).trim();
       i += 1;
       continue;
     }
@@ -1098,6 +1111,8 @@ async function pushProducts(products, dryRun) {
   const cliLocationOverride = String(options.location || options.locationId || "").trim();
   const pushMode = String(options.pushMode || "update").toLowerCase();
   const statusOverride = String(options.statusOverride || "").trim().toUpperCase();
+  const contentOnly = Boolean(options.contentOnly);
+  const priceOverride = String(options.priceOverride || "").trim();
   const skuReviewRows = [];
   let created = 0;
   let updated = 0;
@@ -1285,12 +1300,30 @@ async function pushProducts(products, dryRun) {
           productInput.status = statusOverride === "ACTIVE" ? "ACTIVE" : "DRAFT";
         }
 
+        // Content-only mode (multi-listing SKU updates): restrict the write to
+        // exactly title/description/tags/status. Vendor, SEO, metafields, category,
+        // and handle are left untouched — this mode exists specifically for pushing
+        // copy refinements across several listings that intentionally differ in
+        // other ways (e.g. different price tiers sharing one SKU).
+        const effectiveProductInput = contentOnly
+          ? {
+            title: productInput.title,
+            descriptionHtml: productInput.descriptionHtml,
+            tags: productInput.tags,
+            status: productInput.status,
+          }
+          : productInput;
+        // Content-only mode never touches images unless a price override is also
+        // used for that listing's SKU/inventory bookkeeping side effects — image
+        // handling is a separate, single-listing-only flow (see spec section 7).
+        const effectiveOrderedImages = contentOnly ? [] : orderedImages;
+
         // Replace mode: wipe all existing media before uploading fresh set
-        if (pushMode === "replace" && orderedImages.length) {
+        if (pushMode === "replace" && effectiveOrderedImages.length) {
           await deleteAllProductMedia(existing.id);
         }
 
-        const result = await updateProduct(existing.id, productInput);
+        const result = await updateProduct(existing.id, effectiveProductInput);
         if (result.userErrors.length) {
           console.error(`[${label}] Failed update: ${product.title}`);
           printUserErrors(result.userErrors);
@@ -1303,16 +1336,23 @@ async function pushProducts(products, dryRun) {
         const shopifyVariantNodes = result.product?.variants?.nodes || [];
         const localVariants = Array.isArray(product.variants) ? product.variants : [];
         let mediaSummary = { uploadedCount: 0, firstMediaId: "" };
-        if (orderedImages.length) {
-          mediaSummary = await uploadProductImages(existing.id, orderedImages, product.title);
+        if (effectiveOrderedImages.length) {
+          mediaSummary = await uploadProductImages(existing.id, effectiveOrderedImages, product.title);
         }
         // Update all variants by position (up to however many exist on Shopify)
         for (let vi = 0; vi < Math.min(shopifyVariantNodes.length, Math.max(localVariants.length, 1)); vi += 1) {
           const sv = shopifyVariantNodes[vi];
           const lv = localVariants[vi] || localVariants[0]; // fallback to first local variant
           if (!sv?.id) continue;
+          // Content-only mode: never push a price unless this specific listing has
+          // an explicit override (an editable field the user actually changed in
+          // the multi-listing picker). Otherwise leave the existing price alone —
+          // updateDefaultVariant only sends price when it's a truthy value.
+          const effectivePrice = contentOnly
+            ? priceOverride
+            : (lv?.price || variantIntent.price);
           const lvIntent = {
-            price: lv?.price || variantIntent.price,
+            price: effectivePrice,
             compareAtPrice: lv?.compareAtPrice || variantIntent.compareAtPrice,
             sku: lv?.sku || variantIntent.sku,
             inventoryQuantity: toInventoryQuantity(lv?.inventoryQuantity, variantIntent.inventoryQuantity),
@@ -1472,6 +1512,8 @@ async function main() {
     pushMode: args.pushMode,
     targetId: args.targetId,
     statusOverride: args.statusOverride,
+    contentOnly: args.contentOnly,
+    priceOverride: args.priceOverride,
   });
 }
 

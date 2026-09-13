@@ -568,6 +568,23 @@
       </div>
     </div>
   </div>
+  <!-- Multi-match SKU modal: shown when a SKU is shared across several existing
+       listings (e.g. the same product at different price points). Lets the user
+       pick exactly which ones to update, with title/description/tags updated on
+       every selected row and price left alone unless explicitly edited per row. -->
+  <div class="modal-backdrop" id="skuMultiMatchModal" role="dialog" aria-modal="true" aria-labelledby="skuMultiMatchTitle">
+    <div class="modal-box" style="max-width:560px;">
+      <h3 id="skuMultiMatchTitle">Multiple Listings Share This SKU</h3>
+      <p id="skuMultiMatchBody">Choose which listing(s) to update with the new title, description, and tags. Price and images are left as-is unless you edit the price below for a specific listing.</p>
+      <div id="skuMultiMatchList" style="max-height:320px;overflow-y:auto;margin:10px 0;"></div>
+      <div class="modal-btns">
+        <button class="btn primary" id="skuMultiMatchUpdateBtn" type="button">Update Selected</button>
+        <button class="btn" id="skuMultiMatchCreateNewBtn" type="button">Create New Listing (Same SKU)</button>
+        <button class="btn" id="skuMultiMatchCancelBtn" type="button">Cancel</button>
+      </div>
+      <div id="skuMultiMatchStatus" class="status-list" style="margin-top:10px;display:none;"></div>
+    </div>
+  </div>
   <div class="topbar">
     <div>
       Shopify Commit Embedded App
@@ -782,6 +799,8 @@
             <strong>This listing could be even better with:</strong>
             <ul id="missingInfoCalloutList" style="margin:6px 0 0 18px; padding:0;"></ul>
           </div>
+          <div id="multiTargetQueueStatus" class="status-list" style="display:none; margin-top:10px;"></div>
+          <button class="btn" id="retryFailedMultiTargetsBtn" type="button" style="display:none;margin-top:6px;">Try Again (Failed Listings Only)</button>
           <details class="expando" style="margin-top:10px;">
             <summary>Use Existing CSV Instead (optional)</summary>
             <div class="expando-body">
@@ -1143,6 +1162,70 @@
     const quickCsvBuilderStatus = document.getElementById("quickCsvBuilderStatus");
     const missingInfoCallout = document.getElementById("missingInfoCallout");
     const missingInfoCalloutList = document.getElementById("missingInfoCalloutList");
+    const multiTargetQueueStatus = document.getElementById("multiTargetQueueStatus");
+    const retryFailedMultiTargetsBtn = document.getElementById("retryFailedMultiTargetsBtn");
+    let lastMultiTargetOutputPath = "";
+    let lastFailedMultiTargets = [];
+
+    // Pushes the same generated content (title/description/tags only — content-only
+    // mode) to each target listing individually and sequentially, by specific
+    // product ID. Keeps going through the whole list even if one fails, retries a
+    // failed listing once before giving up on it, then reports a summary with a
+    // "Try Again" action scoped to just whatever is still failing.
+    async function runMultiTargetPushQueue(outputPath, targets) {
+      const results = [];
+      for (const target of targets) {
+        const payload = {
+          mode: "live",
+          outputPath,
+          liveConfirm: "LIVE",
+          targetProductId: target.productId,
+          pushMode: "update",
+          contentOnly: true,
+          priceOverride: target.price || "",
+        };
+        let lastError = "";
+        let ok = false;
+        for (let attempt = 1; attempt <= 2 && !ok; attempt += 1) {
+          try {
+            const res = await apiPost("/api/workflow/push", payload);
+            const data = await res.json();
+            if (res.ok && data.ok) {
+              ok = true;
+            } else {
+              lastError = data.stderr || data.error || `Push failed (attempt ${attempt}).`;
+            }
+          } catch (error) {
+            lastError = String(error && error.message ? error.message : error);
+          }
+        }
+        results.push({ target, ok, error: lastError });
+      }
+
+      const succeeded = results.filter((r) => r.ok);
+      const failed = results.filter((r) => !r.ok);
+      lastMultiTargetOutputPath = outputPath;
+      lastFailedMultiTargets = failed.map((r) => r.target);
+
+      multiTargetQueueStatus.style.display = "block";
+      const lines = [`Updated ${succeeded.length} of ${results.length} listing(s).`];
+      succeeded.forEach((r) => lines.push(`  ✓ ${r.target.title || r.target.productId}`));
+      failed.forEach((r) => lines.push(`  ✗ ${r.target.title || r.target.productId} — ${r.error}`));
+      multiTargetQueueStatus.textContent = lines.join("\n");
+      retryFailedMultiTargetsBtn.style.display = failed.length ? "inline-block" : "none";
+
+      return { succeeded, failed };
+    }
+
+    retryFailedMultiTargetsBtn.addEventListener("click", async () => {
+      if (!lastFailedMultiTargets.length || !lastMultiTargetOutputPath) return;
+      retryFailedMultiTargetsBtn.disabled = true;
+      try {
+        await runMultiTargetPushQueue(lastMultiTargetOutputPath, lastFailedMultiTargets);
+      } finally {
+        retryFailedMultiTargetsBtn.disabled = false;
+      }
+    });
 
     // Renders the "this listing could be even better with..." callout. The AI names
     // fields it could not confidently determine (per the assumption boundary: it must
@@ -1228,9 +1311,92 @@
     const skuModalUpdateExisting = document.getElementById("skuModalUpdateExisting");
     const skuModalCreateNew = document.getElementById("skuModalCreateNew");
     const skuModalCancel = document.getElementById("skuModalCancel");
+    const skuMultiMatchModal = document.getElementById("skuMultiMatchModal");
+    const skuMultiMatchList = document.getElementById("skuMultiMatchList");
+    const skuMultiMatchUpdateBtn = document.getElementById("skuMultiMatchUpdateBtn");
+    const skuMultiMatchCreateNewBtn = document.getElementById("skuMultiMatchCreateNewBtn");
+    const skuMultiMatchCancelBtn = document.getElementById("skuMultiMatchCancelBtn");
+    const skuMultiMatchStatus = document.getElementById("skuMultiMatchStatus");
     // Set by checkSkuConflictBeforeProceed() when the user made an explicit
     // update/create-new/status decision, consumed once by the next push payload.
-    let pendingPushOverrides = { pushMode: "", statusOverride: "" };
+    // multiTargets (when set) means: push the same generated content to each of
+    // these specific product IDs individually, content-only, instead of one push.
+    let pendingPushOverrides = { pushMode: "", statusOverride: "", multiTargets: null };
+
+    // Renders the multi-match picker (thumbnail/title/editable price/checkbox per
+    // listing) and resolves to the user's choice. Returns:
+    //   { action: "cancel" }
+    //   { action: "create" }
+    //   { action: "update", targets: [{ productId, price, originalPrice }, ...] }
+    function showSkuMultiMatchPicker(conflicts) {
+      skuMultiMatchList.innerHTML = "";
+      skuMultiMatchStatus.style.display = "none";
+      conflicts.forEach((c, idx) => {
+        const row = document.createElement("div");
+        row.style.cssText = "display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border,#e5e7eb);";
+        const thumbHtml = c.featuredImageUrl
+          ? `<img src="${sanitize(c.featuredImageUrl)}" alt="" style="width:44px;height:44px;object-fit:cover;border-radius:4px;flex:none;">`
+          : `<div style="width:44px;height:44px;border-radius:4px;flex:none;background:var(--bg-muted,#f3f4f6);"></div>`;
+        row.innerHTML = `
+          <input type="checkbox" data-multi-match-idx="${idx}" style="flex:none;width:18px;height:18px;">
+          ${thumbHtml}
+          <div style="flex:1;min-width:0;">
+            <div style="font-weight:600;font-size:0.85rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${sanitize(c.productTitle || c.sku || "")}</div>
+            <div style="font-size:0.75rem;color:var(--sub);">${sanitize(c.productStatus || "")} · SKU ${sanitize(c.sku || "")}</div>
+          </div>
+          <label style="flex:none;font-size:0.75rem;color:var(--sub);">Price
+            <input type="text" data-multi-match-price="${idx}" value="${sanitize(c.price || "")}" style="width:70px;margin-left:4px;">
+          </label>
+        `;
+        skuMultiMatchList.appendChild(row);
+      });
+
+      return new Promise((resolve) => {
+        skuMultiMatchModal.classList.add("open");
+
+        function collectTargets() {
+          const targets = [];
+          skuMultiMatchList.querySelectorAll("input[data-multi-match-idx]").forEach((checkbox) => {
+            if (!checkbox.checked) return;
+            const idx = Number(checkbox.getAttribute("data-multi-match-idx"));
+            const conflict = conflicts[idx];
+            const priceInput = skuMultiMatchList.querySelector(`input[data-multi-match-price="${idx}"]`);
+            const currentValue = String((priceInput && priceInput.value) || "").trim();
+            const originalPrice = String(conflict.price || "").trim();
+            targets.push({
+              productId: conflict.productId,
+              price: currentValue !== originalPrice ? currentValue : "",
+              originalPrice,
+              title: conflict.productTitle || conflict.sku,
+            });
+          });
+          return targets;
+        }
+
+        function onUpdate() {
+          const targets = collectTargets();
+          if (!targets.length) {
+            skuMultiMatchStatus.style.display = "block";
+            skuMultiMatchStatus.textContent = "Select at least one listing to update, or click Cancel.";
+            return;
+          }
+          cleanup();
+          resolve({ action: "update", targets });
+        }
+        function onCreateNew() { cleanup(); resolve({ action: "create" }); }
+        function onCancel() { cleanup(); resolve({ action: "cancel" }); }
+        function cleanup() {
+          skuMultiMatchModal.classList.remove("open");
+          skuMultiMatchUpdateBtn.removeEventListener("click", onUpdate);
+          skuMultiMatchCreateNewBtn.removeEventListener("click", onCreateNew);
+          skuMultiMatchCancelBtn.removeEventListener("click", onCancel);
+        }
+
+        skuMultiMatchUpdateBtn.addEventListener("click", onUpdate);
+        skuMultiMatchCreateNewBtn.addEventListener("click", onCreateNew);
+        skuMultiMatchCancelBtn.addEventListener("click", onCancel);
+      });
+    }
 
     // Generic confirm modal state (replaces window.confirm(), which is unreliable
     // inside the Shopify admin embedded iframe on some browsers).
@@ -1318,7 +1484,7 @@
         (latestBrandProfile && latestBrandProfile.defaultPushMode) ||
         "update"
       ).trim().toLowerCase();
-      const noConflict = { proceed: true, pushModeOverride: "", statusOverride: "", hadConflict: false };
+      const noConflict = { proceed: true, pushModeOverride: "", statusOverride: "", hadConflict: false, multiTargets: null };
       // Create mode: always create new — skip SKU conflict check entirely
       if (currentPushMode === "create") return noConflict;
 
@@ -1335,6 +1501,21 @@
       if (!data.ok || !data.exists) return noConflict;
 
       const conflicts = Array.isArray(data.conflicts) ? data.conflicts : [];
+
+      // Multiple listings share this SKU (e.g. the same product at different price
+      // points) — a single update-vs-create choice can't express "update some of
+      // these but not others," so this needs the dedicated picker instead.
+      if (conflicts.length > 1) {
+        const multiChoice = await showSkuMultiMatchPicker(conflicts);
+        if (multiChoice.action === "cancel") {
+          return { proceed: false, pushModeOverride: "", statusOverride: "", hadConflict: true, multiTargets: null };
+        }
+        if (multiChoice.action === "create") {
+          return { proceed: true, pushModeOverride: "create", statusOverride: "", hadConflict: true, multiTargets: null };
+        }
+        return { proceed: true, pushModeOverride: "", statusOverride: "", hadConflict: true, multiTargets: multiChoice.targets };
+      }
+
       const primaryConflict = conflicts[0] || {};
       const filledFields = applyExistingListingGaps(primaryConflict);
       const detailLines = conflicts.map((c) =>
@@ -1354,10 +1535,10 @@
       const decision = await skuModalWaitForChoice();
 
       if (decision === "cancel") {
-        return { proceed: false, pushModeOverride: "", statusOverride: "", hadConflict: true };
+        return { proceed: false, pushModeOverride: "", statusOverride: "", hadConflict: true, multiTargets: null };
       }
       if (decision === "create") {
-        return { proceed: true, pushModeOverride: "create", statusOverride: "", hadConflict: true };
+        return { proceed: true, pushModeOverride: "create", statusOverride: "", hadConflict: true, multiTargets: null };
       }
 
       // decision === "update": if the matched listing is currently Active, resolve
@@ -1366,19 +1547,19 @@
       if (String(primaryConflict.productStatus || "").toUpperCase() === "ACTIVE") {
         const policy = (latestBrandProfile && latestBrandProfile.activeUpdatePolicy) || "ask";
         if (policy === "active") {
-          return { proceed: true, pushModeOverride: "", statusOverride: "ACTIVE", hadConflict: true };
+          return { proceed: true, pushModeOverride: "", statusOverride: "ACTIVE", hadConflict: true, multiTargets: null };
         }
         if (policy === "draft") {
-          return { proceed: true, pushModeOverride: "", statusOverride: "DRAFT", hadConflict: true };
+          return { proceed: true, pushModeOverride: "", statusOverride: "DRAFT", hadConflict: true, multiTargets: null };
         }
         const keepActive = await showConfirmModal(
           "Keep This Listing Active?",
           "This listing is currently Active in Shopify. Keep it Active after updating with the new content, or set it to Draft so you can review it first? Click OK to keep it Active, or Cancel to set it to Draft."
         );
-        return { proceed: true, pushModeOverride: "", statusOverride: keepActive ? "ACTIVE" : "DRAFT", hadConflict: true };
+        return { proceed: true, pushModeOverride: "", statusOverride: keepActive ? "ACTIVE" : "DRAFT", hadConflict: true, multiTargets: null };
       }
 
-      return { proceed: true, pushModeOverride: "", statusOverride: "", hadConflict: true };
+      return { proceed: true, pushModeOverride: "", statusOverride: "", hadConflict: true, multiTargets: null };
     }
     const classificationNoticeText = "Final classification stays under your control before publishing.";
     const autoRefreshFieldKeys = [
@@ -2361,7 +2542,7 @@
           quickStatus.textContent = "Cancelled. Your reviewed fields are still here — edit any field and try again.";
           return;
         }
-        pendingPushOverrides = { pushMode: skuDecision.pushModeOverride, statusOverride: skuDecision.statusOverride };
+        pendingPushOverrides = { pushMode: skuDecision.pushModeOverride, statusOverride: skuDecision.statusOverride, multiTargets: skuDecision.multiTargets || null };
 
         if (!skuDecision.hadConflict) {
           const shouldPushLive = await showConfirmModal(
@@ -3336,7 +3517,7 @@
             statusOverride: pendingPushOverrides.statusOverride || "",
             targetProductId: String(catalogProductSelect.value || "").trim(),
           };
-          pendingPushOverrides = { pushMode: "", statusOverride: "" };
+          pendingPushOverrides = { pushMode: "", statusOverride: "", multiTargets: null };
           const pushRes = await apiPost("/api/workflow/push", pushPayload);
           const pushData = await pushRes.json();
           if (!pushRes.ok || !pushData.ok) {
@@ -3347,6 +3528,18 @@
             importResult,
           );
           quickStatus.textContent = "Dry-run push completed. No Shopify draft is created in dry mode; use Push Live to create drafts.";
+        } else if (origin === "quick-reviewed-live" && importResult && importResult.ok && pendingPushOverrides.multiTargets && pendingPushOverrides.multiTargets.length) {
+          const outputPath = String(importResult.outputPath || "").trim();
+          const targets = pendingPushOverrides.multiTargets;
+          pendingPushOverrides = { pushMode: "", statusOverride: "", multiTargets: null };
+          const { succeeded, failed } = await runMultiTargetPushQueue(outputPath, targets);
+          workflowStatus.textContent = summarizeWorkflowOutput(
+            `Generate/import completed. Updated ${succeeded.length} of ${succeeded.length + failed.length} listing(s) sharing this SKU.`,
+            importResult,
+          );
+          quickStatus.textContent = failed.length
+            ? `Updated ${succeeded.length} listing(s); ${failed.length} failed — see details above, then Try Again.`
+            : `Updated all ${succeeded.length} listing(s) sharing this SKU.`;
         } else if (origin === "quick-reviewed-live" && importResult && importResult.ok) {
           const pushPayload = {
             mode: "live",
@@ -3357,7 +3550,7 @@
             statusOverride: pendingPushOverrides.statusOverride || "",
             targetProductId: String(catalogProductSelect.value || "").trim(),
           };
-          pendingPushOverrides = { pushMode: "", statusOverride: "" };
+          pendingPushOverrides = { pushMode: "", statusOverride: "", multiTargets: null };
           const pushRes = await apiPost("/api/workflow/push", pushPayload);
           const pushData = await pushRes.json();
           if (!pushRes.ok || !pushData.ok) {
@@ -3696,7 +3889,7 @@
         quickStatus.textContent = "Cancelled. Your reviewed fields are still here — edit any field and try again.";
         return;
       }
-      pendingPushOverrides = { pushMode: decision.pushModeOverride, statusOverride: decision.statusOverride };
+      pendingPushOverrides = { pushMode: decision.pushModeOverride, statusOverride: decision.statusOverride, multiTargets: decision.multiTargets || null };
       runWorkflowImport("quick");
     });
     quickTemplateDownloadBtn.addEventListener("click", downloadBaseTemplateCsv);
