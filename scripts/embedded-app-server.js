@@ -4715,6 +4715,10 @@ async function enrichImportedOutputWithAi(shopContext, options = {}) {
     generated: 0,
     skipped: 0,
     errors: 0,
+    // Carried through from the AI's own output so the "could be even better with..."
+    // callout stays accurate for what actually ended up in the FINAL imported output,
+    // not just an earlier preview step the user may have since edited past.
+    missingHighValueFields: [],
   };
 
   if (!provider) {
@@ -4858,6 +4862,17 @@ async function enrichImportedOutputWithAi(shopContext, options = {}) {
         continue;
       }
 
+      const rawAiFieldsForGaps = aiCopy.__aiFields || {};
+      const gapsForThisProduct = Array.isArray(rawAiFieldsForGaps.missing_high_value_fields)
+        ? rawAiFieldsForGaps.missing_high_value_fields.map((x) => String(x || "").trim()).filter(Boolean)
+        : [];
+      if (gapsForThisProduct.length) {
+        const label = String(product.title || product?.variants?.[0]?.sku || "this listing").trim();
+        summary.missingHighValueFields.push(
+          products.length > 1 ? `${label}: ${gapsForThisProduct.join(", ")}` : gapsForThisProduct.join(", ")
+        );
+      }
+
       product.title = String(aiCopy.title || product.title || "").trim();
       product.descriptionHtml = String(aiCopy.description || aiCopy.body_html || product.descriptionHtml || "").trim();
       product.vendor = String(aiCopy.vendor || product.vendor || "").trim();
@@ -4912,6 +4927,7 @@ async function enrichImportedOutputWithAi(shopContext, options = {}) {
       summary.generated += 1;
     }
 
+    summary.missingHighValueFields = appendDisclaimerSuggestionIfMissing(summary.missingHighValueFields, brandProfile);
     fs.writeFileSync(absolute, `${JSON.stringify(products, null, 2)}\n`, "utf8");
     return summary;
   } catch (error) {

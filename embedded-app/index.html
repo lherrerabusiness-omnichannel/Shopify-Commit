@@ -716,10 +716,12 @@
                 <label style="font-size:0.79rem;color:var(--sub);">Apply this disclaimer to
                   <select id="brandDisclaimerScopeInput">
                     <option value="all">All listings</option>
-                    <option value="categories">Only specific product types (and new listings in them)</option>
+                    <option value="categories">Only specific product types (checked below)</option>
                   </select>
                 </label>
-                <input id="brandDisclaimerCategoriesInput" type="text" placeholder="Product types, comma-separated (only used if scope is 'specific')" style="flex:1;">
+              </div>
+              <div id="brandDisclaimerCategoriesPicker" style="display:none;max-height:160px;overflow-y:auto;border:1px solid var(--border,#e5e7eb);border-radius:6px;padding:8px;margin:4px 0 10px;">
+                <div style="font-size:0.75rem;color:var(--sub);margin-bottom:4px;">Loading product types…</div>
               </div>
               <div class="btns">
                 <button class="btn primary" id="brandProfileSaveBtn" type="button">Save Brand Profile</button>
@@ -1118,7 +1120,31 @@
     const brandItemConditionInput = document.getElementById("brandItemConditionInput");
     const brandDisclaimerTextInput = document.getElementById("brandDisclaimerTextInput");
     const brandDisclaimerScopeInput = document.getElementById("brandDisclaimerScopeInput");
-    const brandDisclaimerCategoriesInput = document.getElementById("brandDisclaimerCategoriesInput");
+    const brandDisclaimerCategoriesPicker = document.getElementById("brandDisclaimerCategoriesPicker");
+    let pendingDisclaimerCategories = []; // categories to pre-check once the picker renders
+
+    function renderDisclaimerCategoriesPicker() {
+      if (!availableProductTypes.length) {
+        brandDisclaimerCategoriesPicker.innerHTML = '<div style="font-size:0.75rem;color:var(--sub);">No product types loaded yet — try again after the app finishes loading your store data.</div>';
+        return;
+      }
+      const checkedSet = new Set(pendingDisclaimerCategories.map((x) => x.toLowerCase()));
+      brandDisclaimerCategoriesPicker.innerHTML = availableProductTypes.map((type) => {
+        const id = `disclaimerCat_${sanitize(type).replace(/[^a-z0-9]/gi, "_")}`;
+        const checked = checkedSet.has(type.toLowerCase()) ? "checked" : "";
+        return `<label style="display:block;font-size:0.8rem;padding:2px 0;"><input type="checkbox" data-disclaimer-category="${sanitize(type)}" ${checked}> ${sanitize(type)}</label>`;
+      }).join("");
+    }
+
+    function getCheckedDisclaimerCategories() {
+      return Array.from(brandDisclaimerCategoriesPicker.querySelectorAll("input[data-disclaimer-category]:checked"))
+        .map((el) => el.getAttribute("data-disclaimer-category"));
+    }
+
+    function syncDisclaimerCategoriesVisibility() {
+      brandDisclaimerCategoriesPicker.style.display = brandDisclaimerScopeInput.value === "categories" ? "block" : "none";
+    }
+    brandDisclaimerScopeInput.addEventListener("change", syncDisclaimerCategoriesVisibility);
     const brandNameInput = document.getElementById("brandNameInput");
     const brandVendorInput = document.getElementById("brandVendorInput");
     const brandWebsiteInput = document.getElementById("brandWebsiteInput");
@@ -2013,9 +2039,11 @@
           ? data.productTypes.map((x) => String(x || "").trim()).filter(Boolean)
           : [];
         renderProductTypeOptions();
+        renderDisclaimerCategoriesPicker();
       } catch {
         availableProductTypes = [];
         renderProductTypeOptions();
+        renderDisclaimerCategoriesPicker();
       }
     }
 
@@ -2192,7 +2220,9 @@
         brandItemConditionInput.value = p.itemCondition || "new";
         brandDisclaimerTextInput.value = p.disclaimerText || "";
         brandDisclaimerScopeInput.value = p.disclaimerScope || "all";
-        brandDisclaimerCategoriesInput.value = Array.isArray(p.disclaimerCategories) ? p.disclaimerCategories.join(", ") : "";
+        pendingDisclaimerCategories = Array.isArray(p.disclaimerCategories) ? p.disclaimerCategories : [];
+        renderDisclaimerCategoriesPicker();
+        syncDisclaimerCategoriesVisibility();
         renderBrandWebsitePreview(p.websiteUrl || "");
         renderBrandProfileImagePreview(p.profileImageUrl || "");
         brandProfileStatus.textContent = summarizeBrandProfile(latestBrandProfile);
@@ -2221,7 +2251,7 @@
           itemCondition: String(brandItemConditionInput.value || "new").trim(),
           disclaimerText: String(brandDisclaimerTextInput.value || "").trim(),
           disclaimerScope: String(brandDisclaimerScopeInput.value || "all").trim(),
-          disclaimerCategories: String(brandDisclaimerCategoriesInput.value || "").split(",").map((x) => x.trim()).filter(Boolean),
+          disclaimerCategories: getCheckedDisclaimerCategories(),
         };
         const res = await apiPost("/api/brand-profile/save", payload);
         const data = await res.json();
@@ -3522,6 +3552,7 @@
           importResult = out;
           renderWorkflowRows(out.rows || []);
           pilotAuditStatus.textContent = summarizePilotAudit(out.pilotAudit || null);
+          renderMissingInfoCallout(out.aiImportEnrichment && out.aiImportEnrichment.missingHighValueFields);
           workflowStatus.textContent = summarizeWorkflowOutput(
             completed.status === "succeeded" ? "Generate/import completed (background)." : "Generate/import failed (background).",
             out,
@@ -3535,6 +3566,7 @@
           importResult = data;
           renderWorkflowRows(data.rows || []);
           pilotAuditStatus.textContent = summarizePilotAudit(data.pilotAudit || null);
+          renderMissingInfoCallout(data.aiImportEnrichment && data.aiImportEnrichment.missingHighValueFields);
           workflowStatus.textContent = summarizeWorkflowOutput(
             data.ok ? "Generate/import completed." : "Generate/import failed.",
             data,
