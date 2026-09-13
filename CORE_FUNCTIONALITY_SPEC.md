@@ -92,23 +92,39 @@ Prompt: "Replace this existing listing, or create a new one?" Tags merge with
 existing tags (never replaced). Price/images use single-listing overwrite rules
 (section below). Publish status is protected via explicit Active/Draft choice.
 
-### Multiple matches (designed, not yet built)
+### Multiple matches
 
 Real-world reason (user-stated): the same product is sometimes listed at more than
 one price point on purpose (e.g. different bundles/tiers) sharing one SKU. An
 all-or-nothing update would break that setup, so this needs per-listing control.
+Same reasoning extends to title: a listing titled "Product Name - $5 Version" bakes
+its price into the title, and updating that title wholesale would silently make it
+say the wrong thing even though the description/tags update is wanted.
+
+STATUS: price editing is built (commit 4591bad). Title editing (this note) and the
+two bulk-action checkboxes below are new feedback, not yet built.
 
 - Show every matching listing as its own row: thumbnail image, title, and current
   price (all already available from the existing SKU-check data - no new backend
   fetch needed for this part).
 - Each row has a checkbox. The user selects any combination: one, several, or all.
-- **Only description, title, and tags are updated** for every listing checked - this
-  is the safe default precisely because price/images may differ intentionally
-  across listings sharing a SKU.
-- Each row's price is shown as an **editable field**, pre-filled with that listing's
+- Each row's **title** is shown as an editable field, pre-filled with that listing's
+  current title (same pattern as price below). If the user leaves it alone, that
+  listing's title is not touched. If they edit it, that specific listing's title
+  updates to the new value.
+- Each row's **price** is shown as an editable field, pre-filled with that listing's
   current price. If the user leaves it alone, that listing's price is not touched.
   If they edit it, that specific listing's price is updated to the new value - a
   per-listing override, not a blanket price push.
+- New: two bulk-action checkboxes above the list, as a shortcut to avoid editing
+  every row by hand:
+  - "Update all titles" - fills every row's title field with the newly generated
+    title (still editable afterward per-row before confirming).
+  - "Update all pricing to the app's generated pricing" - fills every row's price
+    field with the newly generated price (still editable afterward per-row).
+  Description and tags remain always-updated for every checked row regardless (no
+  checkbox needed for those - unlike title/price, they're not commonly intentionally
+  differentiated per listing the way price/title can be).
 - Images are not touched in the multi-select case (out of scope here - only
   relevant to the single-listing image-review flow in the section below).
 
