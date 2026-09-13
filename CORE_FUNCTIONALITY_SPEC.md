@@ -297,7 +297,25 @@ Two options, need the user's explicit call:
     conventions (MR16, GU10, etc.) specifically, documented as a deliberate,
     named exception to the general rule - not a blanket loosening of it.
 
-## 8c. Dynamic Gap-Filling Boxes (proposed, not yet built)
+## 8c. Dynamic Gap-Filling Boxes (foundation built, commit 8eb2565; UI not yet built)
+
+STATUS UPDATE: while scoping the "de-lighting-ify" request (make field mapping
+generic per store/product-type instead of hardcoded lighting fields), found that
+the hard part already existed and works for any store: relevantMetafields
+(computed dynamically per store/product-type) and the AI's own metafields output
+(validated against the store's real schema) are both already fully generic - no
+lighting-specific hardcoding in either. The one missing piece - a signal for
+"relevant but not confidently filled" - was added as a pure diff of those two
+existing structures (computeUnresolvedMetafields), needing no new AI instruction
+and therefore no new failure mode. This single change serves both the
+de-lighting-ify goal and this section's dynamic boxes, since it produces exactly
+the {key, label} structured data the boxes need to bind to. The old fixed
+lighting-specific spec fields (voltage/wattage/etc.) are untouched and still work
+for this store, running alongside the new generic layer.
+
+Remaining for this section: the actual UI - rendering unresolvedMetafields as real
+input boxes near the SKU area instead of only the existing read-only text callout,
+plus the refresh-on-description-change behavior described below.
 
 User's revised direction after weighing the variant-option-mapping idea (8b.3):
 auto-mapping free text into a variant option (e.g. "Half Moon") risks fighting the
