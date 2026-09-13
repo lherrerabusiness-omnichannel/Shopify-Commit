@@ -109,6 +109,61 @@ detects it automatically.
   later"). The listing preview is the one visual piece worth doing in this pass
   because it directly supports reviewing a listing before push, not just aesthetics.
 
+## 8a. Metafield Mapping Fixes (real-listing feedback round, Sept 2026)
+
+Found by comparing a real pushed listing against its Shopify admin page.
+
+### Root cause: rich_text_field metafields silently dropped
+
+Key Features, Specifications, Safety Note, and Disclaimer are all defined in this
+store as Shopify "rich_text_field" type - a specific JSON structure, not plain text.
+The push code correctly checks for this but has no conversion step, so any plain-text
+content generated for these fields fails validation and is silently discarded before
+reaching Shopify - no error shown anywhere. Fix: convert plain text/bullet lists into
+Shopify's required rich-text JSON structure before the existing validation check, for
+any metafield of this type. Contained to one function, not a restructuring.
+
+### Google Shopping metafields
+
+- **MPN**: confirmed - should be populated directly from the SKU value.
+- **Condition**: new profile-level setting. Ask the merchant a plain question ("Are
+  the items you sell usually new, or used / used-like-new / open box, etc.?") and
+  store their answer. Note: Google Merchant Center's actual condition field only
+  accepts "new", "refurbished", or "used" - the profile question can use
+  merchant-friendly language, but the answer needs to map to one of those three
+  values for the actual metafield write. Needs a proposed mapping reviewed before
+  implementation (e.g. "Open box" -> "used").
+- **Age Group / Gender**: confirmed not applicable to this store's products - leave
+  blank, no change needed.
+
+### Safety Note - always-on, fixed template (not AI-authored)
+
+Confirmed: since this store sells electrical products, a safety note should always be
+attached, and its core safety language should be a fixed template (not something the
+AI freely writes each time), with the IP rating inserted dynamically when known.
+Reason stated by user: liability - getting the wording of a safety warning wrong is a
+real risk, not just a quality issue.
+
+DRAFT WORDING (needs explicit approval or edits before use):
+
+> "Safety Notice: Always disconnect or turn off power at the source before
+> installing, adjusting, or servicing this fixture. [If IP rating known: This fixture
+> is rated {IP_RATING} for weather/water resistance - confirm the installation
+> location and wiring match this rating.] Installation should comply with local
+> electrical codes. If unsure, consult a licensed electrician."
+
+### Disclaimer - profile-authored, pass-through only (no AI generation)
+
+- New profile field: the merchant writes the disclaimer text themselves, once.
+- Existing scope setting (from earlier discussion): apply to all listings, or only to
+  specific categories (and new listings in those categories).
+- At push time, the configured text is passed through directly - no AI compute spent
+  regenerating it per listing.
+- New: if no disclaimer is configured in the profile AND the AI judges the product
+  category as one that could benefit from a disclaimer/safety note, surface a
+  suggestion to the merchant (extends the existing "missing high-value info" callout
+  from Phase 1, rather than building a separate mechanism) - proactive, not silent.
+
 ## 9. Explicitly Out of Scope (for now)
 
 - SKU number generation/logic (auto-numbering, prefix schemes) - deferred as a
