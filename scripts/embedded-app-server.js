@@ -1284,7 +1284,10 @@ function buildConsistencyReference(productType, liveCategoryContext, listingCons
   };
 }
 
-const MATERIAL_CANDIDATES = ["stainless steel", "cast brass", "solid brass", "brass", "bronze", "aluminum", "steel", "copper", "plastic"];
+// "silicon" (not "silicone") is used deliberately — it matches both spellings via
+// substring inclusion ("silicone".includes("silicon") === true), and "silicon" alone
+// is the common colloquial spelling for the material in product descriptions.
+const MATERIAL_CANDIDATES = ["stainless steel", "cast brass", "solid brass", "brass", "bronze", "aluminum", "steel", "copper", "pvc", "neoprene", "silicon", "plastic"];
 
 // Detects the merchant-stated material from free text (short description, notes, etc.)
 // using the same word list inferSignalsFromContext uses for the "material" listing field.
@@ -1297,6 +1300,20 @@ function detectStatedMaterial(text) {
     if (normalized.includes(item)) return item;
   }
   return "";
+}
+
+// Collects every candidate string that appears in normalizedText, skipping a
+// candidate if it's already covered by (a substring of) something already matched
+// (e.g. "steel" is skipped once "stainless steel" has already matched, since they'd
+// otherwise both fire on the same phrase). Preserves the candidate list's own order.
+function collectAllTextMatches(normalizedText, candidates) {
+  const found = [];
+  for (const item of candidates) {
+    if (!normalizedText.includes(item)) continue;
+    if (found.some((existing) => existing.includes(item))) continue;
+    found.push(item);
+  }
+  return found;
 }
 
 // True when two detected material strings name different materials. Treats one being a
@@ -1352,22 +1369,18 @@ function inferSignalsFromContext(shortDescription, imageNames, productType, extr
     if (/\b(?:GU?5\.3|G5\.3)\b/.test(upper) || /\bMR16\b/.test(upper)) baseType = "G5.3";
     else if (baseMatch) baseType = String(baseMatch[1]);
 
-    let material = "";
-    for (const item of MATERIAL_CANDIDATES) {
-      if (normalized.includes(item)) {
-        material = item;
-        break;
-      }
-    }
+    // A product often has more than one material/finish across its components (e.g. a
+    // brass cover, stainless hardware, a PVC housing) — capture all explicitly stated
+    // matches instead of only the first one found, so the more important component
+    // (often mentioned first as the primary subject) doesn't get silently dropped in
+    // favor of a secondary component (e.g. "5 stainless steel screws") that happens to
+    // use a word earlier in the fixed candidate list. Only captures what's explicitly in
+    // the text — this does not infer anything from images, consistent with the
+    // assumption boundary.
+    const material = collectAllTextMatches(normalized, MATERIAL_CANDIDATES).join(", ");
 
-    let finish = "";
     const finishCandidates = ["aged brass", "antique brass", "matte black", "textured black", "bronze", "brass", "white", "stainless steel"];
-    for (const item of finishCandidates) {
-      if (normalized.includes(item)) {
-        finish = item;
-        break;
-      }
-    }
+    const finish = collectAllTextMatches(normalized, finishCandidates).join(", ");
 
     let installType = "";
     if (hasUnderwaterCue) installType = "underwater";
