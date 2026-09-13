@@ -1838,6 +1838,24 @@ function buildStrongProductPrompt(options = {}) {
     "If no existing product type is a credible match, return product_type as an empty string and put the proposed new type in product_type_new_suggestion.",
     "Never invent a product_type that is not already in the store list unless product_type is empty.",
     "",
+    // ─── OPERATIONAL VS CUSTOMER-FACING METAFIELDS ───────────────────────────
+    "OPERATIONAL VS CUSTOMER-FACING METAFIELDS:",
+    "  Merchants attach custom metafields to a product type for very different reasons. Some describe the",
+    "  product itself (a shoe template's 'US Shoe Size', a lamp's 'Bulb Included'); others exist purely for",
+    "  store operations — flags an admin uses to build collections, run ad campaigns, or control storefront",
+    "  visibility, that a shopper never sees as product content (e.g. a boolean 'Hidden From Search' field",
+    "  where 1 means the product is deliberately excluded from search/collections for a special-offer or",
+    "  direct-link campaign).",
+    "  For each entry in Relevant metafield targets, judge which bucket it belongs to using its name,",
+    "  description, and type — a name or description referencing search visibility, internal flags, ad/",
+    "  campaign targeting, admin-only notes, or similar store-operations concerns is operational; a name or",
+    "  description describing an attribute of the product itself is customer-facing content.",
+    "  List every operational metafield's exact namespace.key in 'operational_metafields'. Never put a value",
+    "  for an operational metafield in 'metafields' and never name one in 'missing_high_value_fields' — you",
+    "  do not have the context to safely guess it, and a wrong guess can have real functional consequences",
+    "  (e.g. hiding or exposing a product that shouldn't be). Only fill or flag-as-missing customer-facing",
+    "  metafields.",
+    "",
     // ═══════════════════════════════════════════════════════════════════════════
     // LISTING QUALITY STANDARDS
     // ═══════════════════════════════════════════════════════════════════════════
@@ -2872,6 +2890,10 @@ async function aiGenerateProductCopy(options = {}) {
     '                       "color temperature", "current type (AC/DC)", "IP rating"). Prioritize safety-relevant',
     "                       electrical/technical specs. Empty array if nothing important is missing. Do not list",
     "                       cosmetic details that don't materially affect listing quality or safety.",
+    '  "operational_metafields" – JSON array of exact namespace.key values, chosen only from the Relevant metafield',
+    "                       targets list, that are INTERNAL/OPERATIONAL rather than customer-facing product content",
+    "                       (see OPERATIONAL VS CUSTOMER-FACING METAFIELDS below). Empty array if all relevant",
+    "                       metafields are customer-facing content.",
     "",
     "Return ONLY the JSON object. No markdown. No explanation. No code fences.",
   ].filter(Boolean).join("\n");
@@ -2967,12 +2989,15 @@ async function aiGenerateProductCopy(options = {}) {
     } else if (storeProductTypes.length) {
       aiFields.product_type = "";
     }
-    const aiMetafields = normalizeAiMetafields(aiFields, relevantMetafields);
+    const operationalMetafieldIds = getOperationalMetafieldIds(aiFields, relevantMetafields);
+    const aiMetafields = normalizeAiMetafields(aiFields, relevantMetafields, operationalMetafieldIds);
     // Store-driven and product-type-agnostic by construction: relevantMetafields is
     // already computed per store/product-type (selectRelevantMetafieldsForPrompt), so
     // "relevant but not in what the AI actually filled" is a real, generic missing-gap
     // signal without needing any new AI-output field or lighting-specific assumption.
-    const unresolvedMetafields = computeUnresolvedMetafields(relevantMetafields, aiMetafields);
+    // Operational metafields (flagged by the AI itself - see operational_metafields)
+    // are excluded here too: they should never appear as a content gap to fill in.
+    const unresolvedMetafields = computeUnresolvedMetafields(relevantMetafields, aiMetafields, operationalMetafieldIds);
 
     // Merge AI fields into the row, respecting locked fields and only
     // overwriting empty or explicitly-overwrite-requested fields.
@@ -3825,13 +3850,38 @@ function normalizeMetafieldOutputValue(value, typeName) {
   return text;
 }
 
-function normalizeAiMetafields(aiFields, relevantMetafields) {
+// Distinguishes internal/operational metafields (e.g. a boolean "hidden from search"
+// flag an admin uses to build collections or ad campaigns) from customer-facing
+// product content (e.g. a shoe template's "US Shoe Size"). Only the AI can make this
+// call reliably across different stores' own naming conventions - a fixed keyword list
+// can't generalize. Operational fields must never be surfaced as a content gap and
+// must never have a value guessed here: a wrong guess has real functional consequences
+// (e.g. accidentally hiding or exposing a product), not just a listing-quality issue.
+function getOperationalMetafieldIds(aiFields, relevantMetafields) {
+  const definitionMap = new Map(
+    (Array.isArray(relevantMetafields) ? relevantMetafields : [])
+      .map(normalizeMetafieldDefinition)
+      .filter(Boolean)
+      .map((definition) => [definition.id.toLowerCase(), definition])
+  );
+  const raw = aiFields && aiFields.operational_metafields;
+  const list = Array.isArray(raw) ? raw : [];
+  const ids = new Set();
+  for (const entry of list) {
+    const id = String(entry || "").trim().toLowerCase();
+    if (id && definitionMap.has(id)) ids.add(id);
+  }
+  return ids;
+}
+
+function normalizeAiMetafields(aiFields, relevantMetafields, operationalIds) {
   const definitions = (Array.isArray(relevantMetafields) ? relevantMetafields : [])
     .map(normalizeMetafieldDefinition)
     .filter(Boolean)
     .filter(isPromptSafeMetafieldDefinition);
   const definitionMap = new Map(definitions.map((definition) => [definition.id.toLowerCase(), definition]));
   if (!definitionMap.size) return {};
+  const operational = operationalIds instanceof Set ? operationalIds : new Set();
 
   let source = aiFields && (aiFields.metafields || aiFields.metafields_json);
   if (!source) return {};
@@ -3848,6 +3898,7 @@ function normalizeAiMetafields(aiFields, relevantMetafields) {
     const id = String(compound || "").trim();
     const definition = definitionMap.get(id.toLowerCase());
     if (!definition) return;
+    if (operational.has(definition.id.toLowerCase())) return;
     const value = normalizeMetafieldOutputValue(rawValue, definition.type);
     if (!value) return;
     out[definition.id] = value;
@@ -3887,10 +3938,12 @@ function describeUnresolvedMetafields(unresolvedMetafields) {
     .filter(Boolean);
 }
 
-function computeUnresolvedMetafields(relevantMetafields, aiMetafields) {
+function computeUnresolvedMetafields(relevantMetafields, aiMetafields, operationalIds) {
+  const operational = operationalIds instanceof Set ? operationalIds : new Set();
   const filledIds = new Set(Object.keys(aiMetafields || {}).map((id) => id.toLowerCase()));
   return (Array.isArray(relevantMetafields) ? relevantMetafields : [])
     .filter((definition) => definition && definition.id && !filledIds.has(String(definition.id).toLowerCase()))
+    .filter((definition) => !operational.has(String(definition.id).toLowerCase()))
     .map((definition) => ({
       key: definition.id,
       label: definition.name || definition.key || definition.id,

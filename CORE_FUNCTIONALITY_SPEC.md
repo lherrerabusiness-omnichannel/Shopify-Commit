@@ -356,6 +356,46 @@ structure, keep the app in a "surface it, let the user drive" posture:
    chosen - AI's own stated order, or a fixed priority (safety-relevant electrical
    specs first, then everything else)?
 
+## 8d. Operational vs. Customer-Facing Metafields (built)
+
+User's question: can the AI, while it's already analyzing the product anyway,
+tell the difference between a custom metafield that describes the product (e.g. a
+shoe template's "US Shoe Size" - should be surfaced as a gap to fill) and one that
+exists purely for store operations (e.g. a boolean "Hidden From Search" flag an
+admin uses to build collections or ad-campaign pages, where 0/1 means
+false/true) - and if so, keep the operational one out of the missing-info flow
+entirely, since it isn't content a shopper reads.
+
+Confirmed and built this way:
+
+- This is a judgment call, not a lookup - it depends on each store's own naming
+  and description conventions for its own custom metafields, so a fixed keyword
+  list can't generalize across stores. The AI is well-suited for it because it
+  already has each relevant metafield's name/description/type in context for
+  every generation call.
+- New AI output field `operational_metafields`: a JSON array of exact
+  namespace.key values (chosen only from the same Relevant metafield targets
+  list already given to the AI) that it judges to be internal/operational
+  rather than customer-facing content. Prompt instructions describe both
+  buckets using the shoe-size / hidden-from-search examples above and tell the
+  AI never to fill a value or name a gap for anything in this bucket.
+- Safety consideration beyond just hiding these from the gap list: an
+  operational field flagged this way is also defensively stripped from the
+  AI's actual `metafields` output before it's ever merged into the row that
+  gets written to Shopify (`normalizeAiMetafields`), even if the AI
+  inconsistently also tried to fill a value for it. A wrong guess on a field
+  like this has a real functional consequence (e.g. silently hiding or
+  exposing a product from search/collections), not just a listing-quality
+  issue, so it's treated as a hard exclusion rather than a soft preference.
+- `computeUnresolvedMetafields` (the same diff that powers the missing-info
+  callout and the future dynamic gap-filling boxes from 8c) also excludes
+  anything in this set, so operational fields never appear as something the
+  user is asked to fill in.
+- No changes needed at any of the three call sites that generate listings
+  (from-images, autofill, CSV-import enrichment) - all three already read the
+  merge result through the single `aiGenerateProductCopy` choke point, so the
+  filtering applies uniformly everywhere without per-call-site wiring.
+
 ## 9. Explicitly Out of Scope (for now)
 
 - SKU number generation/logic (auto-numbering, prefix schemes) - deferred as a
