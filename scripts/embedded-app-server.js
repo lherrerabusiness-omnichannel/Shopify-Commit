@@ -4585,6 +4585,11 @@ async function performWorkflowImport(shopContext, payload) {
       outputPath: result.outputPath,
       shortDescription,
     });
+  // Runs regardless of skipAiEnrichment/AI availability - MPN, Condition, Safety
+  // Note, and Disclaimer must never depend on the AI call succeeding.
+  if (result.ok) {
+    applyDeterministicMetafieldsToOutputFile(shopContext, result.outputPath);
+  }
   const pilotAudit = buildPilotAudit(result.rows);
 
   shopContext.workflowState.lastImport = {
@@ -4718,6 +4723,51 @@ function applyDisclaimerIfApplicable(product, effectiveType, brandProfile) {
   return false;
 }
 
+// Applies MPN/Condition/Safety Note/Disclaimer to every product in an already-
+// generated output file. Deliberately separate from enrichImportedOutputWithAi and
+// called unconditionally by performWorkflowImport - these mappings never depend on
+// the AI call, and previously lived inside the AI-gated function, which meant they
+// silently never ran whenever AI enrichment was skipped or unavailable (the actual
+// cause of the disclaimer/MPN/Condition/Safety Note not showing up on some pushes).
+function applyDeterministicMetafieldsToOutputFile(shopContext, outputPath) {
+  const trimmedPath = String(outputPath || "").trim();
+  if (!trimmedPath) return;
+  const absolute = path.resolve(process.cwd(), trimmedPath);
+  if (!fs.existsSync(absolute)) return;
+
+  try {
+    const products = JSON.parse(fs.readFileSync(absolute, "utf8"));
+    if (!Array.isArray(products) || !products.length) return;
+
+    const profile = readBrandProfile(shopContext.paths.brandProfilePath);
+    const fallbackProfile = readDefaultBrandProfileFromCsv();
+    const brandProfile = { ...fallbackProfile, ...profile };
+
+    for (const product of products) {
+      const metafieldMap = {};
+      if (Array.isArray(product.metafields)) {
+        for (const mf of product.metafields) {
+          const key = String(mf.key || "").trim().toLowerCase();
+          if (key) metafieldMap[key] = String(mf.value || "").trim();
+        }
+      }
+      const effectiveType = String(product.productType || "").trim();
+      const sku = String(product?.variants?.[0]?.sku || "").trim();
+
+      applyDeterministicMetafields(product, {
+        sku,
+        ipRating: metafieldMap.ip_rating || "",
+        brandProfile,
+      });
+      applyDisclaimerIfApplicable(product, effectiveType, brandProfile);
+    }
+
+    fs.writeFileSync(absolute, `${JSON.stringify(products, null, 2)}\n`, "utf8");
+  } catch (error) {
+    console.warn(`[deterministic-metafields] Failed to apply to ${trimmedPath}: ${String(error.message || error)}`);
+  }
+}
+
 async function enrichImportedOutputWithAi(shopContext, options = {}) {
   const outputPath = String(options.outputPath || "").trim();
   const shortDescription = String(options.shortDescription || "").trim();
@@ -4810,17 +4860,6 @@ async function enrichImportedOutputWithAi(shopContext, options = {}) {
         : [];
 
       const effectiveType = String(row.product_type || "").trim();
-
-      // Deterministic metafields (MPN, Condition, Safety Note, Disclaimer) never
-      // depend on the AI call succeeding, so they're applied here unconditionally
-      // rather than inside the AI branch below, which can be skipped entirely.
-      const productSku = String(product?.variants?.[0]?.sku || "").trim();
-      applyDeterministicMetafields(product, {
-        sku: productSku,
-        ipRating: metafieldMap.ip_rating || "",
-        brandProfile,
-      });
-      applyDisclaimerIfApplicable(product, effectiveType, brandProfile);
 
       const trustedEffectiveType = findExactStoreProductType(effectiveType, productTypes);
       const typeHints = getStoreDbTypeHints(effectiveType, storeDb);
